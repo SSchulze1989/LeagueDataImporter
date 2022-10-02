@@ -35,7 +35,7 @@ Console.Write("Importing teams...");
 await importer.ImportTeams(teamsData, membersData);
 Console.Write("Done!\n");
 
-foreach (var seasonData in seasonsData.Skip(5))
+foreach (var seasonData in seasonsData)
 {
     Console.Write($"Importing data for season {seasonData.SeasonName}...");
     var season = await importer.ImportSeason(seasonData);
