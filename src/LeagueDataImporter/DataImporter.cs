@@ -2,11 +2,13 @@
 using iRLeagueDatabase.DataTransfer.Members;
 using iRLeagueDatabase.DataTransfer.Results;
 using iRLeagueDatabase.DataTransfer.Results.Convenience;
+using iRLeagueDatabase.DataTransfer.Reviews;
 using iRLeagueDatabase.DataTransfer.Sessions;
 using iRLeagueDatabaseCore.Models;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -49,6 +51,25 @@ namespace LeagueDataImporter
             await dbContext.SaveChangesAsync();
             LeagueId = league.Id;
             return League = league;
+        }
+
+        public async Task<(VoteCategoryEntity entity, VoteCategoryDTO data)[]> ImportVoteCategories(VoteCategoryDTO[] voteCategoriesData)
+        {
+            var map = new List<(VoteCategoryEntity entity, VoteCategoryDTO data)>();
+            foreach(var voteCategoryData in voteCategoriesData)
+            {
+                VoteCategoryEntity voteCategory = await dbContext.VoteCategories
+                    .FirstOrDefaultAsync(x => x.Text == voteCategoryData.Text);
+                if (voteCategory == null)
+                {
+                    voteCategory = new();
+                    dbContext.VoteCategories.Add(voteCategory);
+                }
+                voteCategory = MapVoteCategoryDataToEntity(voteCategoryData, voteCategory);
+                map.Add((voteCategory, voteCategoryData));
+            }
+            await dbContext.SaveChangesAsync();
+            return map.ToArray();
         }
 
         public async Task<SeasonEntity> ImportSeason(SeasonDataDTO seasonData)
@@ -101,8 +122,42 @@ namespace LeagueDataImporter
             await dbContext.SaveChangesAsync();
         }
 
-        public async Task ImportMembers(LeagueMemberDataDTO[] membersData)
+        public async Task ImportEventReviews(EventEntity @event, IncidentReviewDataDTO[] reviewsData, 
+            (MemberEntity member, LeagueMemberDataDTO data)[] memberMap, 
+            (VoteCategoryEntity entity, VoteCategoryDTO data)[] voteCategoryMap)
         {
+            // load event reviews and sessions
+            await dbContext.IncidentReviews
+                .Include(x => x.Session)
+                .Include(x => x.InvolvedMembers)
+                .Include(x => x.AcceptedReviewVotes)
+                    .ThenInclude(x => x.VoteCategory)
+                .Include(x => x.Comments)
+                    .ThenInclude(x => x.ReviewCommentVotes)
+                        .ThenInclude(x => x.VoteCategory)
+                .Where(x => x.Session.EventId == @event.EventId)
+                .LoadAsync();
+            dbContext.ChangeTracker.DetectChanges();
+            Debug.Assert(@event.Sessions != null && @event.Sessions.Count() > 0);
+            var raceSession = @event.Sessions.First(x => x.SessionType == iRLeagueApiCore.Common.Enums.SessionType.Race);
+            foreach ((var reviewData, var index) in reviewsData.Select((x, i) => (x, i)))
+            {
+                IncidentReviewEntity review = @event.Sessions
+                    .SelectMany(x => x.IncidentReviews)
+                    .ElementAtOrDefault(index);
+                if (review == null)
+                {
+                    review = new();
+                    raceSession.IncidentReviews.Add(review);
+                }
+                review = MapReviewDataToEntity(reviewData, review, memberMap, voteCategoryMap);
+            }
+            await dbContext.SaveChangesAsync();
+        }
+
+        public async Task<(MemberEntity entity, LeagueMemberDataDTO data)[]> ImportMembers(LeagueMemberDataDTO[] membersData)
+        {
+            var memberMap = new List<(MemberEntity entity, LeagueMemberDataDTO data)>();
             foreach(var memberData in membersData)
             {
                 MemberEntity member = await dbContext.Members
@@ -113,6 +168,7 @@ namespace LeagueDataImporter
                     dbContext.Members.Add(member);
                 }
                 member = MapMemberDataToEntity(memberData, member);
+                memberMap.Add((member, memberData));
             }
             await dbContext.SaveChangesAsync();
             // create league members
@@ -134,6 +190,7 @@ namespace LeagueDataImporter
                 }
             }
             await dbContext.SaveChangesAsync();
+            return memberMap.ToArray();
         }
 
         public async Task ImportTeams(TeamDataDTO[] teamsData, LeagueMemberDataDTO[] membersData)
@@ -171,6 +228,84 @@ namespace LeagueDataImporter
             schedule.Events.Add(@event);
             @event = MapSessionDataToEventEntity(sessionData, @event);
             return Task.FromResult(@event);
+        }
+
+        private IncidentReviewEntity MapReviewDataToEntity(IncidentReviewDataDTO data, IncidentReviewEntity entity, 
+            (MemberEntity member, LeagueMemberDataDTO data)[] memberMap, 
+            (VoteCategoryEntity entity, VoteCategoryDTO data)[] voteCategoryMap)
+        {
+            entity.AuthorName = data.AuthorName;
+            entity.Corner = data.Corner;
+            entity.OnLap = data.OnLap;
+            entity.IncidentKind = data.IncidentKind;
+            entity.IncidentNr = data.IncidentNr;
+            entity.InvolvedMembers = memberMap
+                .Where(x => data.InvolvedMemberIds.ToList().Contains(x.data.MemberId.Value))
+                .Select(x => x.member)
+                .ToList();
+            if (data.AcceptedReviewVotes != null)
+            foreach((var voteData, var index) in data.AcceptedReviewVotes.Select((x, i) => (x,i)))
+            {
+                AcceptedReviewVoteEntity vote = entity.AcceptedReviewVotes
+                    .ElementAtOrDefault(index);
+                if (vote == null)
+                {
+                    vote = new();
+                    entity.AcceptedReviewVotes.Add(vote);
+                }
+                vote.VoteCategory = voteCategoryMap
+                    .SingleOrDefault(x => x.data.CatId == voteData.VoteCategoryId).entity;
+                vote.MemberAtFault = memberMap
+                    .SingleOrDefault(x => x.data.MemberId == voteData.MemberAtFaultId).member;
+                vote.Description = voteData.Description;
+            }
+            if (data.Comments != null)
+            foreach((var commentData, var index) in data.Comments.Select((x, i) => (x,i)))
+            {
+                ReviewCommentEntity comment = entity.Comments
+                    .ElementAtOrDefault(index);
+                if (comment == null)
+                {
+                    comment = new();
+                    entity.Comments.Add(comment);
+                }
+                comment = MapCommentDataToEntity(commentData, comment, memberMap, voteCategoryMap);
+            }
+            entity.ResultLongText = data.ResultLongText;
+            return entity;
+        }
+
+        private ReviewCommentEntity MapCommentDataToEntity(ReviewCommentDataDTO data, ReviewCommentEntity entity,
+            (MemberEntity member, LeagueMemberDataDTO data)[] memberMap,
+            (VoteCategoryEntity entity, VoteCategoryDTO data)[] voteCategoryMap)
+        {
+            entity.Text = data.Text;
+            foreach((var voteData, var index) in data.CommentReviewVotes.Select((x, i) => (x, i)))
+            {
+                ReviewCommentVoteEntity vote = entity.ReviewCommentVotes
+                    .ElementAtOrDefault(index);
+                if (vote == null)
+                {
+                    vote = new();
+                    entity.ReviewCommentVotes.Add(vote);
+                }
+                vote.VoteCategory = voteCategoryMap
+                    .SingleOrDefault(x => x.data.CatId == voteData.VoteCategoryId).entity;
+                vote.MemberAtFault = memberMap
+                    .SingleOrDefault(x => x.data.MemberId == voteData.MemberAtFaultId).member;
+                vote.Description = voteData.Description;
+            }
+            entity.AuthorName = data.AuthorName ?? data.CreatedByUserName;
+            entity.Date = data.Date;
+            return entity;
+        }
+
+        private VoteCategoryEntity MapVoteCategoryDataToEntity(VoteCategoryDTO data, VoteCategoryEntity entity)
+        {
+            entity.Index = data.Index;
+            entity.Text = data.Text;
+            entity.DefaultPenalty = data.DefaultPenalty;
+            return entity;
         }
 
         private static TeamEntity MapTeamDataToEntity(TeamDataDTO teamData, TeamEntity entity)

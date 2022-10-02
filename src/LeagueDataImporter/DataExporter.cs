@@ -3,6 +3,7 @@ using System.Text;
 using iRLeagueDatabase.DataTransfer;
 using iRLeagueDatabase.DataTransfer.Members;
 using iRLeagueDatabase.DataTransfer.Results.Convenience;
+using iRLeagueDatabase.DataTransfer.Reviews;
 using iRLeagueDatabase.DataTransfer.Sessions;
 
 public class DataExporter
@@ -38,9 +39,19 @@ public class DataExporter
         return await GetAsync<TeamDataDTO>(Array.Empty<long>());
     }
 
+    public async Task<VoteCategoryDTO[]> GetVoteCategories()
+    {
+        return await GetAsync<VoteCategoryDTO>(Array.Empty<long>());
+    }
+
     public async Task<ScheduleDataDTO[]> GetSchedulesFromSeason(SeasonDataDTO season)
     {
         return await GetAsync<ScheduleDataDTO>(season.Schedules.Select(x => x.ScheduleId.GetValueOrDefault()));
+    }
+
+    public async Task<IncidentReviewDataDTO[]> GetReviewsFromSession(SessionDataDTO session)
+    {
+        return await GetAsync<IncidentReviewDataDTO>(session.ReviewIds);
     }
 
     public async Task<SessionResultsDTO> GetResultsFromSession(SessionDataDTO session)

@@ -25,7 +25,7 @@ Console.Write("Loading members data...");
 var membersData = await exporter.GetMembers();
 Console.Write("Done!\n");
 Console.Write("Importing members...");
-await importer.ImportMembers(membersData);
+var memberMap = await importer.ImportMembers(membersData);
 Console.Write("Done!\n");
 
 Console.Write("Loading teams data...");
@@ -33,6 +33,13 @@ var teamsData = await exporter.GetTeams();
 Console.Write("Done!\n");
 Console.Write("Importing teams...");
 await importer.ImportTeams(teamsData, membersData);
+Console.Write("Done!\n");
+
+Console.Write("Loading data for VoteCategories...");
+var voteCategoriesData = await exporter.GetVoteCategories();
+Console.Write("Done!\n");
+Console.Write("Importing VoteCategories...");
+var voteCategoryMap = await importer.ImportVoteCategories(voteCategoriesData);
 Console.Write("Done!\n");
 
 foreach (var seasonData in seasonsData)
@@ -51,7 +58,8 @@ foreach (var seasonData in seasonsData)
     }
     var scheduleMap = season.Schedules.Zip(schedulesData).ToList();
     var eventMap = season.Schedules.SelectMany(x => x.Events).Zip(schedulesData.SelectMany(x => x.Sessions)).ToList();
-    foreach((var @event, var session) in eventMap)
+    
+    foreach ((var @event, var session) in eventMap)
     {
         try
         {
@@ -64,6 +72,22 @@ foreach (var seasonData in seasonsData)
         }
         catch (Exception)
         {
+        }
+    }
+    foreach ((var @event, var session) in eventMap)
+    {
+        try
+        {
+            Console.Write($"Loading reviews data for session {session.SessionId}...");
+            var reviewsData = await exporter.GetReviewsFromSession(session);
+            Console.Write("Done!\n");
+            Console.Write($"Importing reviews for event {@event.EventId}...");
+            await importer.ImportEventReviews(@event, reviewsData, memberMap, voteCategoryMap);
+            Console.Write("Done!\n");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
         }
     }
 }
