@@ -31,6 +31,7 @@ namespace LeagueDataImporter
             var optionsBuilder = new DbContextOptionsBuilder<LeagueDbContext>();
             optionsBuilder.UseMySQL(connectionString);
             dbContext = new LeagueDbContext(optionsBuilder.Options);
+            dbContext.Database.EnsureCreated();
         }
 
         public async Task<LeagueEntity> SetOrCreateLeague(string leagueName)
@@ -47,36 +48,36 @@ namespace LeagueDataImporter
                 };
                 dbContext.Leagues.Add(league);
             }
-            league.Seasons.Clear();
             await dbContext.SaveChangesAsync();
             LeagueId = league.Id;
             return League = league;
         }
 
-        public async Task<(VoteCategoryEntity entity, VoteCategoryDTO data)[]> ImportVoteCategories(VoteCategoryDTO[] voteCategoriesData)
+        public async Task<VoteCategoryEntity[]> ImportVoteCategories(VoteCategoryDTO[] voteCategoriesData)
         {
-            var map = new List<(VoteCategoryEntity entity, VoteCategoryDTO data)>();
-            foreach(var voteCategoryData in voteCategoriesData)
+            var voteCategories = new List<VoteCategoryEntity>();
+            foreach (var voteCategoryData in voteCategoriesData)
             {
                 VoteCategoryEntity voteCategory = await dbContext.VoteCategories
-                    .FirstOrDefaultAsync(x => x.Text == voteCategoryData.Text);
+                    .FirstOrDefaultAsync(x => x.ImportId == voteCategoryData.CatId);
                 if (voteCategory == null)
                 {
                     voteCategory = new();
                     dbContext.VoteCategories.Add(voteCategory);
                 }
                 voteCategory = MapVoteCategoryDataToEntity(voteCategoryData, voteCategory);
-                map.Add((voteCategory, voteCategoryData));
+                voteCategories.Add(voteCategory);
             }
             await dbContext.SaveChangesAsync();
-            return map.ToArray();
+            return voteCategories.ToArray();
         }
 
         public async Task<SeasonEntity> ImportSeason(SeasonDataDTO seasonData)
         {
             // check if season with this name exists:
-            SeasonEntity season  = await dbContext.Seasons
-                .FirstOrDefaultAsync(x => x.SeasonName == seasonData.SeasonName);
+            SeasonEntity season = await dbContext.Seasons
+                .Include(x => x.Schedules)
+                .FirstOrDefaultAsync(x => x.ImportId == seasonData.SeasonId);
             if (season == null)
             {
                 season = new();
@@ -89,42 +90,58 @@ namespace LeagueDataImporter
 
         public async Task<ScheduleEntity> ImportSeasonSchedule(SeasonEntity season, ScheduleDataDTO scheduleData)
         {
-            ScheduleEntity schedule = new();
-            season.Schedules.Add(schedule);
+            ScheduleEntity schedule = await dbContext.Schedules
+                .Include(x => x.Events)
+                    .ThenInclude(x => x.Sessions)
+                .Where(x => x.SeasonId == season.SeasonId)
+                .FirstOrDefaultAsync(x => x.ImportId == scheduleData.ScheduleId);
+            if (schedule == null)
+            {
+                schedule = new();
+                season.Schedules.Add(schedule);
+            }
             schedule = MapScheduleDataToEntity(scheduleData, schedule);
             await dbContext.SaveChangesAsync();
-            foreach(var session in scheduleData.Sessions.OfType<RaceSessionDataDTO>())
+            foreach ((var sessionData, var index) in scheduleData.Sessions.OfType<RaceSessionDataDTO>().WithIndex())
             {
-                var @event = ImportScheduleEvent(schedule, session);
+                EventEntity @event = schedule.Events
+                    .SingleOrDefault(x => x.ImportId == sessionData.SessionId);
+                if (@event == null)
+                {
+                    @event = new();
+                    schedule.Events.Add(@event);
+                }
+                @event = MapSessionDataToEventEntity(sessionData, @event);
             }
             await dbContext.SaveChangesAsync();
             return schedule;
         }
 
-        public async Task ImportEventResults(EventEntity @event, SessionResultsDTO sessionResults)
+        public async Task ImportEventResults(EventEntity @event, SessionResultsDTO sessionResults, MemberEntity[] members, TeamEntity[] teams)
         {
-            var members = await dbContext.Members
-                .ToArrayAsync();
             foreach(var resultsData in sessionResults.ScoredResults)
             {
                 ScoredEventResultEntity eventResult = await dbContext.ScoredEventResults
                     .Include(x => x.ScoredSessionResults)
+                        .ThenInclude(x => x.ScoredResultRows)
+                    .Include(x => x.ScoredSessionResults)
+                        .ThenInclude(x => x.ScoredTeamResultRows)
+                            .ThenInclude(x => x.ScoredResultRows)
                     .Where(x => x.EventId == @event.EventId)
-                    .Where(x => x.Name == resultsData.ScoringName)
-                    .FirstOrDefaultAsync();
+                    .FirstOrDefaultAsync(x => x.ImportId == resultsData.ScoringId);
                 if (eventResult == null)
                 {
                     eventResult = new();
                     @event.ScoredEventResults.Add(eventResult);
                 }
-                MapSessionResultToEventResultEntity(resultsData, eventResult, members);
+                eventResult = await MapSessionResultToEventResultEntity(resultsData, eventResult, members, teams);
+                await dbContext.SaveChangesAsync();
             }
-            await dbContext.SaveChangesAsync();
         }
 
         public async Task ImportEventReviews(EventEntity @event, IncidentReviewDataDTO[] reviewsData, 
-            (MemberEntity member, LeagueMemberDataDTO data)[] memberMap, 
-            (VoteCategoryEntity entity, VoteCategoryDTO data)[] voteCategoryMap)
+            MemberEntity[] members, 
+            VoteCategoryEntity[] voteCategories)
         {
             // load event reviews and sessions
             await dbContext.IncidentReviews
@@ -140,42 +157,36 @@ namespace LeagueDataImporter
             dbContext.ChangeTracker.DetectChanges();
             Debug.Assert(@event.Sessions != null && @event.Sessions.Count() > 0);
             var raceSession = @event.Sessions.First(x => x.SessionType == iRLeagueApiCore.Common.Enums.SessionType.Race);
-            foreach ((var reviewData, var index) in reviewsData.Select((x, i) => (x, i)))
+            foreach (var reviewData in reviewsData)
             {
-                IncidentReviewEntity review = @event.Sessions
-                    .SelectMany(x => x.IncidentReviews)
-                    .ElementAtOrDefault(index);
+                IncidentReviewEntity review = await dbContext.IncidentReviews
+                    .SingleOrDefaultAsync(x => x.ImportId == reviewData.ReviewId);
                 if (review == null)
                 {
                     review = new();
                     raceSession.IncidentReviews.Add(review);
                 }
-                review = MapReviewDataToEntity(reviewData, review, memberMap, voteCategoryMap);
+                review = MapReviewDataToEntity(reviewData, review, members, voteCategories);
             }
             await dbContext.SaveChangesAsync();
         }
 
-        public async Task<(MemberEntity entity, LeagueMemberDataDTO data)[]> ImportMembers(LeagueMemberDataDTO[] membersData)
+        public async Task<MemberEntity[]> ImportMembers(LeagueMemberDataDTO[] membersData)
         {
-            var memberMap = new List<(MemberEntity entity, LeagueMemberDataDTO data)>();
+            var members = new List<MemberEntity>();
             foreach(var memberData in membersData)
             {
                 MemberEntity member = await dbContext.Members
-                    .FirstOrDefaultAsync(x => x.IRacingId == memberData.IRacingId);
+                    .FirstOrDefaultAsync(x => x.ImportId == memberData.MemberId);
                 if (member == null)
                 {
                     member = new();
                     dbContext.Members.Add(member);
                 }
                 member = MapMemberDataToEntity(memberData, member);
-                memberMap.Add((member, memberData));
+                members.Add(member);
             }
             await dbContext.SaveChangesAsync();
-            // create league members
-            var membersIracingIds = membersData.Select(x => x.IRacingId).ToList();
-            var members = await dbContext.Members
-                .Where(x => membersIracingIds.Contains(x.IRacingId))
-                .ToListAsync();
             foreach(var member in members)
             {
                 var leagueMember = await dbContext.LeagueMembers
@@ -190,15 +201,16 @@ namespace LeagueDataImporter
                 }
             }
             await dbContext.SaveChangesAsync();
-            return memberMap.ToArray();
+            return members.ToArray();
         }
 
-        public async Task ImportTeams(TeamDataDTO[] teamsData, LeagueMemberDataDTO[] membersData)
+        public async Task<TeamEntity[]> ImportTeams(TeamDataDTO[] teamsData, LeagueMemberDataDTO[] membersData)
         {
+            var teams = new List<TeamEntity>();
             foreach (var teamData in teamsData)
             {
                 TeamEntity team = await dbContext.Teams
-                    .FirstOrDefaultAsync(x => x.Name == teamData.Name);
+                    .FirstOrDefaultAsync(x => x.ImportId == teamData.TeamId);
                 if (team == null)
                 {
                     team = new();
@@ -207,92 +219,86 @@ namespace LeagueDataImporter
                 team = MapTeamDataToEntity(teamData, team);
 
                 // get members in team
-                var teamMemberIracingIds = membersData
-                    .Where(x => teamData.MemberIds.ToList().Contains(x.MemberId.Value))
-                    .Select(x => x.IRacingId);
-                var teamMemberIds = await dbContext.Members
-                    .Where(x => teamMemberIracingIds.Contains(x.IRacingId))
-                    .Select(x => x.Id)
-                    .ToListAsync();
                 var teamLeagueMembers = await dbContext.LeagueMembers
-                    .Where(x => teamMemberIds.Contains(x.MemberId))
+                    .Where(x => teamData.MemberIds
+                        .ToList()
+                        .Contains(x.Member.ImportId.GetValueOrDefault()))
                     .ToListAsync();
                 team.Members = teamLeagueMembers;
+                teams.Add(team);
             }
             await dbContext.SaveChangesAsync();
+            return teams.ToArray();
         }
 
-        public Task<EventEntity> ImportScheduleEvent(ScheduleEntity schedule, RaceSessionDataDTO sessionData)
+        private static IncidentReviewEntity MapReviewDataToEntity(IncidentReviewDataDTO data, IncidentReviewEntity entity,
+            MemberEntity[] members,
+            VoteCategoryEntity[] voteCategories)
         {
-            EventEntity @event = new();
-            schedule.Events.Add(@event);
-            @event = MapSessionDataToEventEntity(sessionData, @event);
-            return Task.FromResult(@event);
-        }
-
-        private IncidentReviewEntity MapReviewDataToEntity(IncidentReviewDataDTO data, IncidentReviewEntity entity, 
-            (MemberEntity member, LeagueMemberDataDTO data)[] memberMap, 
-            (VoteCategoryEntity entity, VoteCategoryDTO data)[] voteCategoryMap)
-        {
+            entity.ImportId = data.ReviewId;
             entity.AuthorName = data.AuthorName;
             entity.Corner = data.Corner;
             entity.OnLap = data.OnLap;
             entity.IncidentKind = data.IncidentKind;
             entity.IncidentNr = data.IncidentNr;
-            entity.InvolvedMembers = memberMap
-                .Where(x => data.InvolvedMemberIds.ToList().Contains(x.data.MemberId.Value))
-                .Select(x => x.member)
+            entity.InvolvedMembers = members
+                .Where(x => data.InvolvedMemberIds
+                    .ToList()
+                    .Contains(x.ImportId.GetValueOrDefault()))
                 .ToList();
             if (data.AcceptedReviewVotes != null)
-            foreach((var voteData, var index) in data.AcceptedReviewVotes.Select((x, i) => (x,i)))
+            foreach(var voteData in data.AcceptedReviewVotes)
             {
                 AcceptedReviewVoteEntity vote = entity.AcceptedReviewVotes
-                    .ElementAtOrDefault(index);
+                    .SingleOrDefault(x => x.ImportId == voteData.ReviewVoteId);
                 if (vote == null)
                 {
                     vote = new();
+                    vote.ImportId = voteData.ReviewVoteId;
                     entity.AcceptedReviewVotes.Add(vote);
                 }
-                vote.VoteCategory = voteCategoryMap
-                    .SingleOrDefault(x => x.data.CatId == voteData.VoteCategoryId).entity;
-                vote.MemberAtFault = memberMap
-                    .SingleOrDefault(x => x.data.MemberId == voteData.MemberAtFaultId).member;
+                vote.VoteCategory = voteCategories
+                    .SingleOrDefault(x => x.ImportId == voteData.VoteCategoryId);
+                vote.MemberAtFault = members
+                    .SingleOrDefault(x => x.ImportId == voteData.MemberAtFaultId);
                 vote.Description = voteData.Description;
             }
             if (data.Comments != null)
-            foreach((var commentData, var index) in data.Comments.Select((x, i) => (x,i)))
+            foreach(var commentData in data.Comments)
             {
                 ReviewCommentEntity comment = entity.Comments
-                    .ElementAtOrDefault(index);
+                    .SingleOrDefault(x => x.ImportId == commentData.CommentId);
                 if (comment == null)
                 {
                     comment = new();
                     entity.Comments.Add(comment);
                 }
-                comment = MapCommentDataToEntity(commentData, comment, memberMap, voteCategoryMap);
+                comment = MapCommentDataToEntity(commentData, comment, members, voteCategories);
             }
             entity.ResultLongText = data.ResultLongText;
             return entity;
         }
 
-        private ReviewCommentEntity MapCommentDataToEntity(ReviewCommentDataDTO data, ReviewCommentEntity entity,
-            (MemberEntity member, LeagueMemberDataDTO data)[] memberMap,
-            (VoteCategoryEntity entity, VoteCategoryDTO data)[] voteCategoryMap)
+        private static ReviewCommentEntity MapCommentDataToEntity(ReviewCommentDataDTO data, ReviewCommentEntity entity,
+            MemberEntity[] members,
+            VoteCategoryEntity[] voteCategories)
         {
+            entity.ImportId = data.CommentId;
             entity.Text = data.Text;
-            foreach((var voteData, var index) in data.CommentReviewVotes.Select((x, i) => (x, i)))
+            foreach(var voteData in data.CommentReviewVotes)
             {
                 ReviewCommentVoteEntity vote = entity.ReviewCommentVotes
-                    .ElementAtOrDefault(index);
+                    .SingleOrDefault(x => x.ImportId == voteData.ReviewVoteId);
                 if (vote == null)
                 {
                     vote = new();
+                    vote.ImportId = voteData.ReviewVoteId;
                     entity.ReviewCommentVotes.Add(vote);
                 }
-                vote.VoteCategory = voteCategoryMap
-                    .SingleOrDefault(x => x.data.CatId == voteData.VoteCategoryId).entity;
-                vote.MemberAtFault = memberMap
-                    .SingleOrDefault(x => x.data.MemberId == voteData.MemberAtFaultId).member;
+                vote.VoteCategory = voteCategories
+                    .SingleOrDefault(x => x.ImportId == voteData.VoteCategoryId);
+                vote.MemberAtFault = members
+                    .SingleOrDefault(x => x.ImportId == voteData.MemberAtFaultId);
                 vote.Description = voteData.Description;
             }
             entity.AuthorName = data.AuthorName ?? data.CreatedByUserName;
@@ -300,8 +306,9 @@ namespace LeagueDataImporter
             return entity;
         }
 
-        private VoteCategoryEntity MapVoteCategoryDataToEntity(VoteCategoryDTO data, VoteCategoryEntity entity)
+        private static VoteCategoryEntity MapVoteCategoryDataToEntity(VoteCategoryDTO data, VoteCategoryEntity entity)
         {
+            entity.ImportId = data.CatId;
             entity.Index = data.Index;
             entity.Text = data.Text;
             entity.DefaultPenalty = data.DefaultPenalty;
@@ -310,6 +317,7 @@ namespace LeagueDataImporter
 
         private static TeamEntity MapTeamDataToEntity(TeamDataDTO teamData, TeamEntity entity)
         {
+            entity.ImportId = teamData.TeamId;
             entity.Name = teamData.Name;
             entity.TeamColor = teamData.TeamColor;
             entity.TeamHomepage = teamData.TeamHomepage;
@@ -319,6 +327,7 @@ namespace LeagueDataImporter
 
         private static MemberEntity MapMemberDataToEntity(LeagueMemberDataDTO data, MemberEntity entity)
         {
+            entity.ImportId = data.MemberId;
             entity.Firstname = data.Firstname;
             entity.Lastname = data.Lastname;
             entity.IRacingId = data.IRacingId;
@@ -329,6 +338,7 @@ namespace LeagueDataImporter
 
         private static SeasonEntity MapSeasonDataToEntity(SeasonDataDTO data, SeasonEntity entity)
         {
+            entity.ImportId = data.SeasonId;
             entity.SeasonName = data.SeasonName;
             entity.SeasonStart = data.SeasonStart;
             entity.SeasonEnd = data.SeasonEnd;
@@ -339,12 +349,14 @@ namespace LeagueDataImporter
 
         private static ScheduleEntity MapScheduleDataToEntity(ScheduleDataDTO data, ScheduleEntity entity)
         {
+            entity.ImportId = data.ScheduleId;
             entity.Name = data.Name;
             return entity;
         }
 
         private static EventEntity MapSessionDataToEventEntity(RaceSessionDataDTO data, EventEntity entity)
         {
+            entity.ImportId = data.SessionId;
             entity.Name = data.Name;
             entity.Duration = data.Duration;
             entity.Date = data.Date;
@@ -353,45 +365,69 @@ namespace LeagueDataImporter
             int sessionNr = 1;
             if (data.PracticeAttached)
             {
-                SessionEntity practice = new()
+                SessionEntity practice = entity.Sessions
+                    .FirstOrDefault(x => x.SessionType == iRLeagueApiCore.Common.Enums.SessionType.Practice);
+                if (practice == null)
                 {
-                    Name = "Practice",
-                    Duration = data.PracticeLength,
-                    SessionType = iRLeagueApiCore.Common.Enums.SessionType.Practice,
-                    SessionNr = sessionNr++,
-                };
-                entity.Sessions.Add(practice);
+                    practice = new()
+                    {
+                        Name = "Practice",
+                        Duration = data.PracticeLength,
+                        SessionType = iRLeagueApiCore.Common.Enums.SessionType.Practice,
+                    };
+                    entity.Sessions.Add(practice);
+                }
+                practice.SessionNr = sessionNr++;
             }
             if (data.QualyAttached)
             {
-                SessionEntity qualy = new()
+                SessionEntity qualy = entity.Sessions
+                    .FirstOrDefault(x => x.SessionType == iRLeagueApiCore.Common.Enums.SessionType.Qualifying);
+                if (qualy == null)
                 {
-                    Name = "Qualifying",
-                    Duration = data.QualyLength,
-                    SessionType = iRLeagueApiCore.Common.Enums.SessionType.Qualifying,
-                    SessionNr = sessionNr++,
-                };
-                entity.Sessions.Add(qualy);
+                    qualy = new()
+                    {
+                        Name = "Qualifying",
+                        Duration = data.QualyLength,
+                        SessionType = iRLeagueApiCore.Common.Enums.SessionType.Qualifying,
+                    };
+                    entity.Sessions.Add(qualy);
+                }
+                qualy.SessionNr = sessionNr++;
             }
             if (data.SessionType == iRLeagueManager.Enums.SessionType.HeatEvent)
             {
                 foreach(var subSession in data.SubSessions.OfType<SessionDataDTO>())
                 {
-                    SessionEntity session = MapSessionDataToEntity(subSession, new());
+                    SessionEntity session = entity.Sessions
+                        .SingleOrDefault(x => x.ImportId == subSession.SessionId);
+                    if (session == null)
+                    {
+                        session = new();
+                        entity.Sessions.Add(session);
+                    }
                     session.SessionNr = sessionNr++;
-                    entity.Sessions.Add(session);
+                    MapSessionDataToEntity(subSession, session);
                 }
             }
             else
             {
-                SessionEntity session = MapSessionDataToEntity(data, new());
-                entity.Sessions.Add(session);
+                SessionEntity session = entity.Sessions
+                    .SingleOrDefault(x => x.ImportId == data.SessionId);
+                if (session == null)
+                {
+                    session = new();
+                    entity.Sessions.Add(session);
+                }
+                session.SessionNr = sessionNr++;
+                MapSessionDataToEntity(data, session);
             }
             return entity;
         }
 
         private static SessionEntity MapSessionDataToEntity(SessionDataDTO data, SessionEntity entity)
         {
+            entity.ImportId = data.SessionId;
             entity.Name = data.Name;
             entity.Duration = data.Duration;
             entity.Laps = default;
@@ -399,22 +435,95 @@ namespace LeagueDataImporter
             return entity;
         }
 
-        private static ScoredEventResultEntity MapSessionResultToEventResultEntity(ScoredResultDataDTO data, ScoredEventResultEntity entity, MemberEntity[] members)
+        private async Task<ScoredEventResultEntity> MapSessionResultToEventResultEntity(ScoredResultDataDTO data, ScoredEventResultEntity entity, 
+            MemberEntity[] members, TeamEntity[] teams)
         {
+            entity.ImportId = data.ScoringId;
             entity.Name = data.ScoringName;
-            entity.ScoredSessionResults.Clear();
-            ScoredSessionResultEntity sessionResult = new() { Name = entity.Name };
-            entity.ScoredSessionResults.Add(sessionResult);
-            foreach(var row in data.FinalResults)
+            ScoredSessionResultEntity sessionResult = entity.ScoredSessionResults
+                .SingleOrDefault(x => x.ImportId == data.ScoringId);
+            if (sessionResult == null)
             {
-                ScoredResultRowEntity rowEntity = MapScoredResultRowDataToEntity(row, new(), members);
-                sessionResult.ScoredResultRows.Add(rowEntity);
+                sessionResult = new() { Name = entity.Name };
+                entity.ScoredSessionResults.Add(sessionResult);
+            }
+            sessionResult.ImportId = data.ScoringId;
+            foreach(var rowData in data.FinalResults)
+            {
+                ScoredResultRowEntity rowEntity = sessionResult.ScoredResultRows
+                    .SingleOrDefault(x => x.ImportId == rowData.ScoredResultRowId);
+                if (rowEntity == null)
+                {
+                    rowEntity = new();
+                    sessionResult.ScoredResultRows.Add(rowEntity);
+                }
+                rowEntity = MapScoredResultRowDataToEntity(rowData, rowEntity, members, teams);
+            }
+            if (data is ScoredTeamResultDataDTO teamResultData)
+            {
+                foreach (var rowData in teamResultData.TeamResults.SelectMany(x => x.ScoredResultRows).ToList())
+                {
+                    ScoredResultRowEntity rowEntity = await dbContext.ScoredResultRows
+                        .SingleOrDefaultAsync(x => x.ImportId == rowData.ScoredResultRowId);
+                    if (rowEntity == null)
+                    {
+                        rowEntity = new();
+                        sessionResult.ScoredResultRows.Add(rowEntity);
+                    }
+                    rowEntity = MapScoredResultRowDataToEntity(rowData, rowEntity, members, teams);
+                }
+                foreach (var rowData in teamResultData.TeamResults)
+                {
+                    ScoredTeamResultRowEntity rowEntity = sessionResult.ScoredTeamResultRows
+                        .SingleOrDefault(x => x.ImportId == rowData.ScoredResultRowId);
+                    if (rowEntity == null)
+                    {
+                        rowEntity = new();
+                        sessionResult.ScoredTeamResultRows.Add(rowEntity);
+                        rowEntity.ScoredSessionResult = sessionResult;
+                    }
+                    rowEntity = await MapScoredTeamResultRowDataToEntity(rowData, rowEntity, members, teams);
+                }
             }
             return entity;
         }
 
-        private static ScoredResultRowEntity MapScoredResultRowDataToEntity(ScoredResultRowDataDTO data, ScoredResultRowEntity entity, MemberEntity[] members)
+        private async Task<ScoredTeamResultRowEntity> MapScoredTeamResultRowDataToEntity(ScoredTeamResultRowDataDTO data, ScoredTeamResultRowEntity entity,
+            MemberEntity[] members, TeamEntity[] teams)
         {
+            entity.ImportId = data.ScoredResultRowId;
+            entity.FastestLapTime = data.FastestLapTime.Ticks;
+            entity.AvgLapTime = data.AvgLapTime.Ticks;
+            entity.BonusPoints = data.BonusPoints;
+            entity.CarClass = data.CarClass;
+            entity.ClassId = data.ClassId;
+            entity.Date = data.Date;
+            entity.FinalPosition = data.FinalPosition;
+            entity.FinalPositionChange = data.FinalPositionChange;
+            entity.PenaltyPoints = data.PenaltyPoints;
+            entity.RacePoints = data.RacePoints;
+            entity.Team = teams.Single(x => x.ImportId == data.TeamId);
+            entity.TotalPoints = data.TotalPoints;
+            entity.ScoredResultRows.Clear();
+            foreach(var rowData in data.ScoredResultRows)
+            {
+                ScoredResultRowEntity rowEntity = await dbContext.ScoredResultRows
+                    .SingleOrDefaultAsync(x => x.ImportId == rowData.ScoredResultRowId);
+                if (rowEntity == null)
+                {
+                    rowEntity = entity.ScoredSessionResult.ScoredResultRows
+                        .SingleOrDefault(x => x.ImportId == rowData.ScoredResultRowId)
+                        ?? throw new InvalidOperationException($"ScoredResultRow ImportId:{rowData.ScoredResultRowId} in TeamResultRow ImportId:{entity.ImportId} not found!");
+                }
+                entity.ScoredResultRows.Add(rowEntity);
+            }
+            return entity;
+        }
+
+        private static ScoredResultRowEntity MapScoredResultRowDataToEntity(ScoredResultRowDataDTO data, ScoredResultRowEntity entity,
+            MemberEntity[] members, TeamEntity[] teams)
+        {
+            entity.ImportId = data.ScoredResultRowId;
             entity.AvgLapTime = data.AvgLapTime.Ticks;
             entity.BonusPoints = data.BonusPoints;
             entity.Car = data.Car;
@@ -434,7 +543,7 @@ namespace LeagueDataImporter
             entity.FinishPosition = data.FinishPosition;
             entity.Incidents = data.Incidents;
             entity.Interval = data.Interval.Ticks;
-            entity.MemberId = members.Single(x => x.Firstname == data.Firstname && x.Lastname == data.Lastname).Id;
+            entity.Member = members.Single(x => x.ImportId == data.MemberId);
             entity.NewCpi = data.NewCpi;
             entity.NewIRating = data.NewIRating;
             entity.NewLicenseLevel = data.NewLicenseLevel;
@@ -452,6 +561,7 @@ namespace LeagueDataImporter
             entity.StartPosition = data.StartPosition;
             entity.Status = (int)data.Status;
             entity.TotalPoints = data.TotalPoints;
+            entity.Team = teams.SingleOrDefault(x => x.ImportId == data.TeamId);
             return entity;
         }
 

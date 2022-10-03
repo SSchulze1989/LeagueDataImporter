@@ -25,24 +25,24 @@ Console.Write("Loading members data...");
 var membersData = await exporter.GetMembers();
 Console.Write("Done!\n");
 Console.Write("Importing members...");
-var memberMap = await importer.ImportMembers(membersData);
+var members = await importer.ImportMembers(membersData);
 Console.Write("Done!\n");
 
 Console.Write("Loading teams data...");
 var teamsData = await exporter.GetTeams();
 Console.Write("Done!\n");
 Console.Write("Importing teams...");
-await importer.ImportTeams(teamsData, membersData);
+var teams = await importer.ImportTeams(teamsData, membersData);
 Console.Write("Done!\n");
 
 Console.Write("Loading data for VoteCategories...");
 var voteCategoriesData = await exporter.GetVoteCategories();
 Console.Write("Done!\n");
 Console.Write("Importing VoteCategories...");
-var voteCategoryMap = await importer.ImportVoteCategories(voteCategoriesData);
+var voteCategories = await importer.ImportVoteCategories(voteCategoriesData);
 Console.Write("Done!\n");
 
-foreach (var seasonData in seasonsData)
+foreach (var seasonData in seasonsData.TakeLast(1))
 {
     Console.Write($"Importing data for season {seasonData.SeasonName}...");
     var season = await importer.ImportSeason(seasonData);
@@ -58,7 +58,7 @@ foreach (var seasonData in seasonsData)
     }
     var scheduleMap = season.Schedules.Zip(schedulesData).ToList();
     var eventMap = season.Schedules.SelectMany(x => x.Events).Zip(schedulesData.SelectMany(x => x.Sessions)).ToList();
-    
+
     foreach ((var @event, var session) in eventMap)
     {
         try
@@ -67,11 +67,12 @@ foreach (var seasonData in seasonsData)
             var resultsData = await exporter.GetResultsFromSession(session);
             Console.Write("Done!\n");
             Console.Write($"Importing results for event {@event.EventId}...");
-            await importer.ImportEventResults(@event, resultsData);
+            await importer.ImportEventResults(@event, resultsData, members, teams);
             Console.Write("Done!\n");
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            Console.WriteLine(ex.Message);
         }
     }
     foreach ((var @event, var session) in eventMap)
@@ -82,7 +83,7 @@ foreach (var seasonData in seasonsData)
             var reviewsData = await exporter.GetReviewsFromSession(session);
             Console.Write("Done!\n");
             Console.Write($"Importing reviews for event {@event.EventId}...");
-            await importer.ImportEventReviews(@event, reviewsData, memberMap, voteCategoryMap);
+            await importer.ImportEventReviews(@event, reviewsData, members, voteCategories);
             Console.Write("Done!\n");
         }
         catch (Exception ex)
