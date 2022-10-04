@@ -124,9 +124,7 @@ namespace LeagueDataImporter
                 ScoredEventResultEntity eventResult = await dbContext.ScoredEventResults
                     .Include(x => x.ScoredSessionResults)
                         .ThenInclude(x => x.ScoredResultRows)
-                    .Include(x => x.ScoredSessionResults)
-                        .ThenInclude(x => x.ScoredTeamResultRows)
-                            .ThenInclude(x => x.ScoredResultRows)
+                            .ThenInclude(x => x.TeamResultRows)
                     .Where(x => x.EventId == @event.EventId)
                     .FirstOrDefaultAsync(x => x.ImportId == resultsData.ScoringId);
                 if (eventResult == null)
@@ -461,25 +459,14 @@ namespace LeagueDataImporter
             }
             if (data is ScoredTeamResultDataDTO teamResultData)
             {
-                foreach (var rowData in teamResultData.TeamResults.SelectMany(x => x.ScoredResultRows).ToList())
-                {
-                    ScoredResultRowEntity rowEntity = await dbContext.ScoredResultRows
-                        .SingleOrDefaultAsync(x => x.ImportId == rowData.ScoredResultRowId);
-                    if (rowEntity == null)
-                    {
-                        rowEntity = new();
-                        sessionResult.ScoredResultRows.Add(rowEntity);
-                    }
-                    rowEntity = MapScoredResultRowDataToEntity(rowData, rowEntity, members, teams);
-                }
                 foreach (var rowData in teamResultData.TeamResults)
                 {
-                    ScoredTeamResultRowEntity rowEntity = sessionResult.ScoredTeamResultRows
+                    ScoredResultRowEntity rowEntity = sessionResult.ScoredResultRows
                         .SingleOrDefault(x => x.ImportId == rowData.ScoredResultRowId);
                     if (rowEntity == null)
                     {
                         rowEntity = new();
-                        sessionResult.ScoredTeamResultRows.Add(rowEntity);
+                        sessionResult.ScoredResultRows.Add(rowEntity);
                         rowEntity.ScoredSessionResult = sessionResult;
                     }
                     rowEntity = await MapScoredTeamResultRowDataToEntity(rowData, rowEntity, members, teams);
@@ -488,7 +475,7 @@ namespace LeagueDataImporter
             return entity;
         }
 
-        private async Task<ScoredTeamResultRowEntity> MapScoredTeamResultRowDataToEntity(ScoredTeamResultRowDataDTO data, ScoredTeamResultRowEntity entity,
+        private async Task<ScoredResultRowEntity> MapScoredTeamResultRowDataToEntity(ScoredTeamResultRowDataDTO data, ScoredResultRowEntity entity,
             MemberEntity[] members, TeamEntity[] teams)
         {
             entity.ImportId = data.ScoredResultRowId;
@@ -497,14 +484,13 @@ namespace LeagueDataImporter
             entity.BonusPoints = data.BonusPoints;
             entity.CarClass = data.CarClass;
             entity.ClassId = data.ClassId;
-            entity.Date = data.Date;
             entity.FinalPosition = data.FinalPosition;
             entity.FinalPositionChange = data.FinalPositionChange;
             entity.PenaltyPoints = data.PenaltyPoints;
             entity.RacePoints = data.RacePoints;
             entity.Team = teams.Single(x => x.ImportId == data.TeamId);
             entity.TotalPoints = data.TotalPoints;
-            entity.ScoredResultRows.Clear();
+            entity.TeamResultRows.Clear();
             foreach(var rowData in data.ScoredResultRows)
             {
                 ScoredResultRowEntity rowEntity = await dbContext.ScoredResultRows
@@ -515,7 +501,7 @@ namespace LeagueDataImporter
                         .SingleOrDefault(x => x.ImportId == rowData.ScoredResultRowId)
                         ?? throw new InvalidOperationException($"ScoredResultRow ImportId:{rowData.ScoredResultRowId} in TeamResultRow ImportId:{entity.ImportId} not found!");
                 }
-                entity.ScoredResultRows.Add(rowEntity);
+                entity.TeamResultRows.Add(rowEntity);
             }
             return entity;
         }
