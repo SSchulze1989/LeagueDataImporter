@@ -15,6 +15,7 @@ var leagueName = "SkippyCup";
 var connectionString = configuration.GetConnectionString("ModelDb");
 var exporter = new DataExporter(leagueName, username, password);
 using var importer = new DataImporter(connectionString);
+var league = await importer.SetOrCreateLeague(leagueName);
 
 Console.Write("Loading legacy track data...");
 var legacyTracks = await exporter.GetRaceTracks();
@@ -40,7 +41,6 @@ Console.Write("Done!\n");
 Console.Write("Loading old SeasonsData ...");
 var seasonsData = await exporter.GetSeasons();
 Console.Write("Done!\n");
-var league = await importer.SetOrCreateLeague(leagueName);
 
 Console.Write("Loading data for VoteCategories...");
 var voteCategoriesData = await exporter.GetVoteCategories();
