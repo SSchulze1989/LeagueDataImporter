@@ -49,7 +49,17 @@ Console.Write("Importing VoteCategories...");
 var voteCategories = await importer.ImportVoteCategories(voteCategoriesData);
 Console.Write("Done!\n");
 
-foreach (var seasonData in seasonsData)
+IEnumerable<SeasonDataDTO> importSeasons;
+if (args.Contains("--import-all"))
+{
+    importSeasons = seasonsData;
+}
+else
+{
+    importSeasons = seasonsData.TakeLast(1);
+}
+
+foreach (var seasonData in importSeasons)
 {
     Console.Write($"Importing data for season {seasonData.SeasonName}...");
     var season = await importer.ImportSeason(seasonData);
