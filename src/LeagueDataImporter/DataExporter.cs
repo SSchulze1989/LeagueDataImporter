@@ -5,6 +5,7 @@ using iRLeagueDatabase.DataTransfer.Members;
 using iRLeagueDatabase.DataTransfer.Results.Convenience;
 using iRLeagueDatabase.DataTransfer.Reviews;
 using iRLeagueDatabase.DataTransfer.Sessions;
+using iRLeagueManager.Locations;
 
 public class DataExporter
 {
@@ -59,6 +60,14 @@ public class DataExporter
         var requestUri = $"Results?leagueName={leagueName}&sessionId={session.SessionId}";
         var result = await client.GetAsync(requestUri);
         var content = await result.Content.ReadAsAsync<SessionResultsDTO>();
+        return content;
+    }
+
+    public async Task<RaceTrack[]> GetRaceTracks()
+    {
+        var requestUrl = "TrackInfo";
+        var result = await client.GetAsync(requestUrl);
+        var content = await result.Content.ReadAsAsync<RaceTrack[]>();
         return content;
     }
 

@@ -5,6 +5,7 @@ using iRLeagueDatabase.DataTransfer.Results.Convenience;
 using iRLeagueDatabase.DataTransfer.Reviews;
 using iRLeagueDatabase.DataTransfer.Sessions;
 using iRLeagueDatabaseCore.Models;
+using iRLeagueManager.Locations;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
@@ -31,7 +32,7 @@ namespace LeagueDataImporter
             var optionsBuilder = new DbContextOptionsBuilder<LeagueDbContext>();
             optionsBuilder.UseMySQL(connectionString);
             dbContext = new LeagueDbContext(optionsBuilder.Options);
-            dbContext.Database.EnsureCreated();
+            dbContext.Database.Migrate();
         }
 
         public async Task<LeagueEntity> SetOrCreateLeague(string leagueName)
@@ -112,6 +113,9 @@ namespace LeagueDataImporter
                     schedule.Events.Add(@event);
                 }
                 @event = MapSessionDataToEventEntity(sessionData, @event);
+                var track = await dbContext.TrackConfigs
+                    .FirstAsync(x => x.LegacyTrackId == sessionData.LocationId);
+                @event.Track = track;
             }
             await dbContext.SaveChangesAsync();
             return schedule;
@@ -227,6 +231,20 @@ namespace LeagueDataImporter
             }
             await dbContext.SaveChangesAsync();
             return teams.ToArray();
+        }
+
+        public async Task ImportLegacyTrackIds(RaceTrack[] legacyTracks)
+        {
+            foreach(var legacyTrack in legacyTracks)
+            {
+                foreach (var legacyTrackConfig in legacyTrack.Configs)
+                {
+                    var trackConfig = await dbContext.TrackConfigs
+                        .FirstAsync(x => x.TrackId == legacyTrackConfig.iracingTrkId);
+                    trackConfig.LegacyTrackId = $"{legacyTrack.TrackId}-{legacyTrackConfig.ConfigId}";
+                }
+            }
+            await dbContext.SaveChangesAsync();
         }
 
         private static IncidentReviewEntity MapReviewDataToEntity(IncidentReviewDataDTO data, IncidentReviewEntity entity,
