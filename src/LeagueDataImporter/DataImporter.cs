@@ -40,6 +40,7 @@ namespace LeagueDataImporter
             LeagueName = leagueName;
             LeagueEntity league = await dbContext.Leagues
                 .Include(x => x.Seasons)
+                .Include(x => x.LeagueMembers)
                 .FirstOrDefaultAsync(x => x.Name == leagueName);
             if (league == null)
             {
