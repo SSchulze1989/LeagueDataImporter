@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using iRLeagueDatabase.DataTransfer;
 using iRLeagueDatabase.DataTransfer.Members;
+using iRLeagueDatabase.DataTransfer.Results;
 using iRLeagueDatabase.DataTransfer.Results.Convenience;
 using iRLeagueDatabase.DataTransfer.Reviews;
 using iRLeagueDatabase.DataTransfer.Sessions;
@@ -71,6 +72,18 @@ public class DataExporter
         return content;
     }
 
+    public async Task<StandingsDataDTO[]> GetStandingsFromSeason(SeasonDataDTO season)
+    {
+        var sb = new StringBuilder();
+        sb.Append("Standings");
+        sb.Append($"?leagueName={leagueName}");
+        sb.Append($"&seasonId={season.SeasonId}");
+        var requestUrl = sb.ToString();
+        var result = await client.GetAsync(requestUrl);
+        var content = await result.Content.ReadAsAsync<SeasonStandingsDTO>();
+        return content.Standings;
+    }
+
     public async Task<T[]> GetAsync<T>(IEnumerable<long> ids)
     {
         if (ids == null)
@@ -86,8 +99,8 @@ public class DataExporter
         {
             sb.Append($"&requestIds[{index}]={id}");
         }
-        var requestUri = sb.ToString();
-        var result = await client.GetAsync(requestUri);
+        var requestUrl = sb.ToString();
+        var result = await client.GetAsync(requestUrl);
         var content = await result.Content.ReadAsAsync<MappableDTO[]>();
         return content.OfType<T>().ToArray();
     }

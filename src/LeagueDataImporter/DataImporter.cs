@@ -248,6 +248,29 @@ namespace LeagueDataImporter
             await dbContext.SaveChangesAsync();
         }
 
+        public async Task ImportStandings(StandingsDataDTO[] standings, SeasonEntity season, MemberEntity[] members, TeamEntity[] teams)
+        {
+            foreach (var standing in standings)
+            {
+                var standingEntity = await dbContext.Standings
+                    .Include(x => x.StandingRows)
+                        .ThenInclude(x => x.ResultRows)
+                    .Where(x => x.SeasonId == season.SeasonId)
+                    .Where(x => x.Name == standing.Name)
+                    .FirstOrDefaultAsync();
+                if (standingEntity == null)
+                {
+                    standingEntity = new()
+                    {
+                        Season = season,
+                    };
+                    dbContext.Standings.Add(standingEntity);
+                }
+                standingEntity = await MapStandingDataToEntity(standing, standingEntity, members, teams);
+            }
+            await dbContext.SaveChangesAsync();
+        }
+
         private static IncidentReviewEntity MapReviewDataToEntity(IncidentReviewDataDTO data, IncidentReviewEntity entity,
             MemberEntity[] members,
             VoteCategoryEntity[] voteCategories)
@@ -523,6 +546,68 @@ namespace LeagueDataImporter
                 }
                 entity.TeamResultRows.Add(rowEntity);
             }
+            return entity;
+        }
+
+        private async Task<StandingEntity> MapStandingDataToEntity(StandingsDataDTO data, StandingEntity entity, 
+            MemberEntity[] members, TeamEntity[] teams)
+        {
+            entity.Name = data.Name;
+            entity.IsTeamStanding = data is TeamStandingsDataDTO;
+            entity.Event = await dbContext.Events
+                .FirstOrDefaultAsync(x => x.ImportId == data.SessionId);
+            foreach((var rowData, var index) in data.StandingsRows.Select((x, i) => (x, i)))
+            {
+                var rowEntity = entity.StandingRows
+                    .ElementAtOrDefault(index);
+                if (rowEntity == null)
+                {
+                    rowEntity = new();
+                    entity.StandingRows.Add(rowEntity);
+                }
+                rowEntity = await MapStandingRowDataToEntity(rowData, rowEntity, members, teams);
+            }
+            return entity;
+        }
+
+        private async Task<StandingRowEntity> MapStandingRowDataToEntity(StandingsRowDataDTO data, StandingRowEntity entity,
+            MemberEntity[] members, TeamEntity[] teams)
+        {
+            entity.CarClass = data.CarClass;
+            entity.ClassId = data.ClassId;
+            entity.CompletedLaps = data.CompletedLaps;
+            entity.CompletedLapsChange = data.CompletedLapsChange;
+            entity.DroppedResultCount = data.DroppedResultCount;
+            entity.FastestLaps = data.FastestLaps;
+            entity.FastestLapsChange = data.FastestLapsChange;
+            entity.Incidents = data.Incidents;
+            entity.IncidentsChange = data.IncidentsChange;
+            entity.LastPosition = data.LastPosition;
+            entity.LeadLaps = data.LeadLaps;
+            entity.LeadLapsChange = data.LeadLapsChange;
+            entity.Member = members.FirstOrDefault(x => x.ImportId == data.MemberId);
+            entity.PenaltyPoints = data.PenaltyPoints;
+            entity.PenaltyPointsChange = data.PenaltyPointsChange;
+            entity.PolePositions = data.PolePositions;
+            entity.PolePositionsChange = data.PolePositionsChange;
+            entity.Position = data.Position;
+            entity.PositionChange = data.PositionChange;
+            entity.RacePoints = data.RacePoints;
+            entity.RacePointsChange = data.RacePointsChange;
+            entity.Races = data.Races;
+            entity.RacesCounted = data.RacesCounted;
+            entity.Team = teams.FirstOrDefault(x => x.ImportId == data.TeamId);
+            entity.Top10 = data.Top10;
+            entity.Top3 = data.Top3;
+            entity.Top5 = data.Top5;
+            entity.TotalPoints = data.TotalPoints;
+            entity.TotalPointsChange = data.TotalPointsChange;
+            entity.Wins = data.Wins;
+            entity.WinsChange = data.WinsChange;
+            var resultRowIds = data.DriverResults.Select(x => x.ScoredResultRowId);
+            entity.ResultRows = await dbContext.ScoredResultRows
+                .Where(x => resultRowIds.Contains(x.ImportId))
+                .ToListAsync();
             return entity;
         }
 

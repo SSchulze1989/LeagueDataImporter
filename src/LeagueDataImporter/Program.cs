@@ -76,37 +76,53 @@ foreach (var seasonData in importSeasons)
     var scheduleMap = season.Schedules.Zip(schedulesData).ToList();
     var eventMap = season.Schedules.SelectMany(x => x.Events).Zip(schedulesData.SelectMany(x => x.Sessions)).ToList();
 
-    foreach ((var @event, var session) in eventMap)
+    if (args.Contains("--skip-results") == false)
     {
-        try
+        foreach ((var @event, var session) in eventMap)
         {
-            Console.Write($"Loading results data for session {session.SessionId}...");
-            var resultsData = await exporter.GetResultsFromSession(session);
-            Console.Write("Done!\n");
-            Console.Write($"Importing results for event {@event.EventId}...");
-            await importer.ImportEventResults(@event, resultsData, members, teams);
-            Console.Write("Done!\n");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine(ex.Message);
+            try
+            {
+                Console.Write($"Loading results data for session {session.SessionId}...");
+                var resultsData = await exporter.GetResultsFromSession(session);
+                Console.Write("Done!\n");
+                Console.Write($"Importing results for event {@event.EventId}...");
+                await importer.ImportEventResults(@event, resultsData, members, teams);
+                Console.Write("Done!\n");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+            }
         }
     }
-    foreach ((var @event, var session) in eventMap)
+    if (args.Contains("--skip-reviews") == false)
     {
-        try
+        foreach ((var @event, var session) in eventMap)
         {
-            Console.Write($"Loading reviews data for session {session.SessionId}...");
-            var reviewsData = await exporter.GetReviewsFromSession(session);
-            Console.Write("Done!\n");
-            Console.Write($"Importing reviews for event {@event.EventId}...");
-            await importer.ImportEventReviews(@event, reviewsData, members, voteCategories);
-            Console.Write("Done!\n");
+            try
+            {
+                Console.Write($"Loading reviews data for session {session.SessionId}...");
+                var reviewsData = await exporter.GetReviewsFromSession(session);
+                Console.Write("Done!\n");
+                Console.Write($"Importing reviews for event {@event.EventId}...");
+                await importer.ImportEventReviews(@event, reviewsData, members, voteCategories);
+                Console.Write("Done!\n");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+            }
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine(ex.Message);
-        }
+    }
+
+    if (args.Contains("--skip-standings") == false)
+    {
+        Console.Write($"Loading standings data from season {seasonData.SeasonId}...");
+        var standingsData = await exporter.GetStandingsFromSeason(seasonData);
+        Console.Write("Done!\n");
+        Console.Write($"Importing standings for season {season.SeasonId}...");
+        await importer.ImportStandings(standingsData, season, members, teams);
+        Console.Write("Done!\n");
     }
 }
 
