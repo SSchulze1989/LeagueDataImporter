@@ -505,6 +505,7 @@ namespace LeagueDataImporter
             entity.ClassId = data.ClassId;
             entity.FinalPosition = data.FinalPosition;
             entity.FinalPositionChange = data.FinalPositionChange;
+            entity.LeadLaps = data.LeadLaps;
             entity.PenaltyPoints = data.PenaltyPoints;
             entity.RacePoints = data.RacePoints;
             entity.Team = teams.Single(x => x.ImportId == data.TeamId);
@@ -548,6 +549,7 @@ namespace LeagueDataImporter
             entity.FinishPosition = data.FinishPosition;
             entity.Incidents = data.Incidents;
             entity.Interval = data.Interval.Ticks;
+            entity.LeadLaps = data.LeadLaps;
             entity.Member = members.Single(x => x.ImportId == data.MemberId);
             entity.NewCpi = data.NewCpi;
             entity.NewIRating = data.NewIRating;
