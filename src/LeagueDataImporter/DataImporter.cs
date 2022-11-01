@@ -556,8 +556,6 @@ namespace LeagueDataImporter
         {
             entity.Name = data.Name;
             entity.IsTeamStanding = data is TeamStandingsDataDTO;
-            entity.Event = await dbContext.Events
-                .FirstOrDefaultAsync(x => x.ImportId == data.SessionId);
             foreach((var rowData, var index) in data.StandingsRows.Select((x, i) => (x, i)))
             {
                 var rowEntity = entity.StandingRows
@@ -567,13 +565,19 @@ namespace LeagueDataImporter
                     rowEntity = new();
                     entity.StandingRows.Add(rowEntity);
                 }
-                rowEntity = await MapStandingRowDataToEntity(rowData, rowEntity, members, teams);
+                var resultRowIds = data.StandingsRows
+                    .SelectMany(x => x.DriverResults)
+                    .Select(x => x.ScoredResultRowId);
+                var resultRows = await dbContext.ScoredResultRows
+                    .Where(x => resultRowIds.Contains(x.ImportId))
+                    .ToListAsync();
+                rowEntity = MapStandingRowDataToEntity(rowData, rowEntity, members, teams, resultRows);
             }
             return entity;
         }
 
-        private async Task<StandingRowEntity> MapStandingRowDataToEntity(StandingsRowDataDTO data, StandingRowEntity entity,
-            MemberEntity[] members, TeamEntity[] teams)
+        private static StandingRowEntity MapStandingRowDataToEntity(StandingsRowDataDTO data, StandingRowEntity entity,
+            MemberEntity[] members, TeamEntity[] teams, IEnumerable<ScoredResultRowEntity> resultRows)
         {
             entity.CarClass = data.CarClass;
             entity.ClassId = data.ClassId;
@@ -607,9 +611,9 @@ namespace LeagueDataImporter
             entity.Wins = data.Wins;
             entity.WinsChange = data.WinsChange;
             var resultRowIds = data.DriverResults.Select(x => x.ScoredResultRowId);
-            entity.ResultRows = await dbContext.ScoredResultRows
+            entity.ResultRows = resultRows
                 .Where(x => resultRowIds.Contains(x.ImportId))
-                .ToListAsync();
+                .ToList();
             return entity;
         }
 
