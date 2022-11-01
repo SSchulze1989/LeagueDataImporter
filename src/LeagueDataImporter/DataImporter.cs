@@ -248,7 +248,7 @@ namespace LeagueDataImporter
             await dbContext.SaveChangesAsync();
         }
 
-        public async Task ImportStandings(StandingsDataDTO[] standings, SeasonEntity season, MemberEntity[] members, TeamEntity[] teams)
+        public async Task ImportStandings(StandingsDataDTO[] standings, SeasonEntity season, EventEntity @event, MemberEntity[] members, TeamEntity[] teams)
         {
             foreach (var standing in standings)
             {
@@ -256,6 +256,7 @@ namespace LeagueDataImporter
                     .Include(x => x.StandingRows)
                         .ThenInclude(x => x.ResultRows)
                     .Where(x => x.SeasonId == season.SeasonId)
+                    .Where(x => x.EventId == @event.EventId)
                     .Where(x => x.Name == standing.Name)
                     .FirstOrDefaultAsync();
                 if (standingEntity == null)
@@ -263,6 +264,7 @@ namespace LeagueDataImporter
                     standingEntity = new()
                     {
                         Season = season,
+                        Event = @event,
                     };
                     dbContext.Standings.Add(standingEntity);
                 }
