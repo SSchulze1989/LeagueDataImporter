@@ -11,9 +11,17 @@ var configuration = builder.Build();
 
 var username = configuration["Username"];
 var password = configuration["Password"];
-var leagueName = "SkippyCup";
+var leagueName = args.Length == 0 ? string.Empty : args[0];
 var connectionString = configuration.GetConnectionString("ModelDb");
 var exporter = new DataExporter(leagueName, username, password);
+// check if league exists
+var oldLeagues = await exporter.GetLeagueNames();
+if (oldLeagues.Any(x => x.Equals(leagueName)) == false)
+{
+    Console.WriteLine("Error! LeagueName \"{0}\" does not exist on remote", leagueName);
+    return -1;
+}
+
 using var importer = new DataImporter(connectionString);
 var league = await importer.SetOrCreateLeague(leagueName);
 
@@ -137,3 +145,4 @@ foreach (var seasonData in importSeasons)
 }
 
 Console.WriteLine("Finished");
+return 0;

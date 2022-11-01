@@ -79,6 +79,7 @@ namespace LeagueDataImporter
             // check if season with this name exists:
             SeasonEntity season = await dbContext.Seasons
                 .Include(x => x.Schedules)
+                .Where(x => x.LeagueId == LeagueId)
                 .FirstOrDefaultAsync(x => x.ImportId == seasonData.SeasonId);
             if (season == null)
             {
@@ -95,6 +96,7 @@ namespace LeagueDataImporter
             ScheduleEntity schedule = await dbContext.Schedules
                 .Include(x => x.Events)
                     .ThenInclude(x => x.Sessions)
+                .Where(x => x.LeagueId == LeagueId)
                 .Where(x => x.SeasonId == season.SeasonId)
                 .FirstOrDefaultAsync(x => x.ImportId == scheduleData.ScheduleId);
             if (schedule == null)
@@ -130,6 +132,7 @@ namespace LeagueDataImporter
                     .Include(x => x.ScoredSessionResults)
                         .ThenInclude(x => x.ScoredResultRows)
                             .ThenInclude(x => x.TeamResultRows)
+                    .Where(x => x.LeagueId == LeagueId)
                     .Where(x => x.EventId == @event.EventId)
                     .FirstOrDefaultAsync(x => x.ImportId == resultsData.ScoringId);
                 if (eventResult == null)
@@ -155,6 +158,7 @@ namespace LeagueDataImporter
                 .Include(x => x.Comments)
                     .ThenInclude(x => x.ReviewCommentVotes)
                         .ThenInclude(x => x.VoteCategory)
+                .Where(x => x.LeagueId == LeagueId)
                 .Where(x => x.Session.EventId == @event.EventId)
                 .LoadAsync();
             dbContext.ChangeTracker.DetectChanges();
@@ -163,6 +167,7 @@ namespace LeagueDataImporter
             foreach (var reviewData in reviewsData)
             {
                 IncidentReviewEntity review = await dbContext.IncidentReviews
+                    .Where(x => x.LeagueId == LeagueId)
                     .SingleOrDefaultAsync(x => x.ImportId == reviewData.ReviewId);
                 if (review == null)
                 {
@@ -193,6 +198,7 @@ namespace LeagueDataImporter
             foreach(var member in members)
             {
                 var leagueMember = await dbContext.LeagueMembers
+                    .Where(x => x.LeagueId == LeagueId)
                     .FirstOrDefaultAsync(x => x.MemberId == member.Id);
                 if (leagueMember == null)
                 {
@@ -213,6 +219,7 @@ namespace LeagueDataImporter
             foreach (var teamData in teamsData)
             {
                 TeamEntity team = await dbContext.Teams
+                    .Where(x => x.LeagueId == LeagueId)
                     .FirstOrDefaultAsync(x => x.ImportId == teamData.TeamId);
                 if (team == null)
                 {
@@ -226,6 +233,7 @@ namespace LeagueDataImporter
                     .Where(x => teamData.MemberIds
                         .ToList()
                         .Contains(x.Member.ImportId.GetValueOrDefault()))
+                    .Where(x => x.LeagueId == LeagueId)
                     .ToListAsync();
                 team.Members = teamLeagueMembers;
                 teams.Add(team);
@@ -255,6 +263,7 @@ namespace LeagueDataImporter
                 var standingEntity = await dbContext.Standings
                     .Include(x => x.StandingRows)
                         .ThenInclude(x => x.ResultRows)
+                    .Where(x => x.LeagueId == LeagueId)
                     .Where(x => x.SeasonId == season.SeasonId)
                     .Where(x => x.EventId == @event.EventId)
                     .Where(x => x.Name == standing.Name)
@@ -309,6 +318,7 @@ namespace LeagueDataImporter
             foreach(var commentData in data.Comments)
             {
                 ReviewCommentEntity comment = entity.Comments
+                    .Where(x => x.LeagueId == entity.LeagueId)
                     .SingleOrDefault(x => x.ImportId == commentData.CommentId);
                 if (comment == null)
                 {
@@ -539,6 +549,7 @@ namespace LeagueDataImporter
             foreach(var rowData in data.ScoredResultRows)
             {
                 ScoredResultRowEntity rowEntity = await dbContext.ScoredResultRows
+                    .Where(x => x.LeagueId == LeagueId)
                     .SingleOrDefaultAsync(x => x.ImportId == rowData.ScoredResultRowId);
                 if (rowEntity == null)
                 {
@@ -569,6 +580,7 @@ namespace LeagueDataImporter
                     .SelectMany(x => x.DriverResults)
                     .Select(x => x.ScoredResultRowId);
                 var resultRows = await dbContext.ScoredResultRows
+                    .Where(x => x.LeagueId == LeagueId)
                     .Where(x => resultRowIds.Contains(x.ImportId))
                     .ToListAsync();
                 rowEntity = MapStandingRowDataToEntity(rowData, rowEntity, members, teams, resultRows);

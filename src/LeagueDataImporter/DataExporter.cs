@@ -26,6 +26,14 @@ public class DataExporter
         client.DefaultRequestHeaders.Add(HttpRequestHeader.Accept.ToString(), "application/xml");
     }
 
+    public async Task<IEnumerable<string>> GetLeagueNames()
+    {
+        var requestUrl = "CheckLeague";
+        var result = await client.GetAsync(requestUrl);
+        var content = await result.Content.ReadAsAsync<string[]>();
+        return content;
+    }
+
     public async Task<SeasonDataDTO[]> GetSeasons()
     {
         return await GetAsync<SeasonDataDTO>(Array.Empty<long>());
