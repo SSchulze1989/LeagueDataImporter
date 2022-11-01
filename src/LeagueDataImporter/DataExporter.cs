@@ -84,6 +84,19 @@ public class DataExporter
         return content.Standings;
     }
 
+    public async Task<StandingsDataDTO[]> GetStandingsFromSession(SeasonDataDTO season, SessionDataDTO session)
+    {
+        var sb = new StringBuilder();
+        sb.Append("Standings");
+        sb.Append($"?leagueName={leagueName}");
+        sb.Append($"&seasonId={season.SeasonId}");
+        sb.Append($"&sessionId={session.SessionId}");
+        var requestUrl = sb.ToString();
+        var result = await client.GetAsync(requestUrl);
+        var content = await result.Content.ReadAsAsync<SeasonStandingsDTO>();
+        return content.Standings;
+    }
+
     public async Task<T[]> GetAsync<T>(IEnumerable<long> ids)
     {
         if (ids == null)

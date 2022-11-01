@@ -117,12 +117,22 @@ foreach (var seasonData in importSeasons)
 
     if (args.Contains("--skip-standings") == false)
     {
-        Console.Write($"Loading standings data from season {seasonData.SeasonId}...");
-        var standingsData = await exporter.GetStandingsFromSeason(seasonData);
-        Console.Write("Done!\n");
-        Console.Write($"Importing standings for season {season.SeasonId}...");
-        await importer.ImportStandings(standingsData, season, members, teams);
-        Console.Write("Done!\n");
+        foreach((var @event, var session) in eventMap)
+        {
+            try
+            {
+                Console.Write($"Loading standings data from session {session.SessionId}...");
+                var standingsData = await exporter.GetStandingsFromSession(seasonData, session);
+                Console.Write("Done!\n");
+                Console.Write($"Importing standings for event {@event.EventId}...");
+                await importer.ImportStandings(standingsData, season, @event, members, teams);
+                Console.Write("Done!\n");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+            }
+        }
     }
 }
 
