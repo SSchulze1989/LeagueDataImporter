@@ -124,7 +124,7 @@ namespace LeagueDataImporter
             return schedule;
         }
 
-        public async Task ImportEventResults(EventEntity @event, SessionResultsDTO sessionResults, MemberEntity[] members, TeamEntity[] teams)
+        public async Task ImportEventResults(EventEntity @event, SessionResultsDTO sessionResults, LeagueMemberEntity[] members, TeamEntity[] teams)
         {
             foreach(var resultsData in sessionResults.ScoredResults)
             {
@@ -146,7 +146,7 @@ namespace LeagueDataImporter
         }
 
         public async Task ImportEventReviews(EventEntity @event, IncidentReviewDataDTO[] reviewsData, 
-            MemberEntity[] members, 
+            LeagueMemberEntity[] members, 
             VoteCategoryEntity[] voteCategories)
         {
             // load event reviews and sessions
@@ -179,7 +179,7 @@ namespace LeagueDataImporter
             await dbContext.SaveChangesAsync();
         }
 
-        public async Task<MemberEntity[]> ImportMembers(LeagueMemberDataDTO[] membersData)
+        public async Task<LeagueMemberEntity[]> ImportMembers(LeagueMemberDataDTO[] membersData)
         {
             var members = new List<MemberEntity>();
             foreach(var memberData in membersData)
@@ -195,9 +195,11 @@ namespace LeagueDataImporter
                 members.Add(member);
             }
             await dbContext.SaveChangesAsync();
+            var leagueMembers = new List<LeagueMemberEntity>();
             foreach(var member in members)
             {
                 var leagueMember = await dbContext.LeagueMembers
+                    .Include(x => x.Member)
                     .Where(x => x.LeagueId == LeagueId)
                     .FirstOrDefaultAsync(x => x.MemberId == member.Id);
                 if (leagueMember == null)
@@ -208,9 +210,10 @@ namespace LeagueDataImporter
                     };
                     League.LeagueMembers.Add(leagueMember);
                 }
+                leagueMembers.Add(leagueMember);
             }
             await dbContext.SaveChangesAsync();
-            return members.ToArray();
+            return leagueMembers.ToArray();
         }
 
         public async Task<TeamEntity[]> ImportTeams(TeamDataDTO[] teamsData, LeagueMemberDataDTO[] membersData)
@@ -256,7 +259,7 @@ namespace LeagueDataImporter
             await dbContext.SaveChangesAsync();
         }
 
-        public async Task ImportStandings(StandingsDataDTO[] standings, SeasonEntity season, EventEntity @event, MemberEntity[] members, TeamEntity[] teams)
+        public async Task ImportStandings(StandingsDataDTO[] standings, SeasonEntity season, EventEntity @event, LeagueMemberEntity[] members, TeamEntity[] teams)
         {
             foreach (var standing in standings)
             {
@@ -283,7 +286,7 @@ namespace LeagueDataImporter
         }
 
         private static IncidentReviewEntity MapReviewDataToEntity(IncidentReviewDataDTO data, IncidentReviewEntity entity,
-            MemberEntity[] members,
+            LeagueMemberEntity[] members,
             VoteCategoryEntity[] voteCategories)
         {
             entity.ImportId = data.ReviewId;
@@ -295,7 +298,8 @@ namespace LeagueDataImporter
             entity.InvolvedMembers = members
                 .Where(x => data.InvolvedMemberIds
                     .ToList()
-                    .Contains(x.ImportId.GetValueOrDefault()))
+                    .Contains(x.Member.ImportId.GetValueOrDefault()))
+                    .Select(x => x.Member)
                 .ToList();
             if (data.AcceptedReviewVotes != null)
             foreach(var voteData in data.AcceptedReviewVotes)
@@ -311,7 +315,7 @@ namespace LeagueDataImporter
                 vote.VoteCategory = voteCategories
                     .SingleOrDefault(x => x.ImportId == voteData.VoteCategoryId);
                 vote.MemberAtFault = members
-                    .SingleOrDefault(x => x.ImportId == voteData.MemberAtFaultId);
+                    .SingleOrDefault(x => x.Member.ImportId == voteData.MemberAtFaultId).Member;
                 vote.Description = voteData.Description;
             }
             if (data.Comments != null)
@@ -332,7 +336,7 @@ namespace LeagueDataImporter
         }
 
         private static ReviewCommentEntity MapCommentDataToEntity(ReviewCommentDataDTO data, ReviewCommentEntity entity,
-            MemberEntity[] members,
+            LeagueMemberEntity[] members,
             VoteCategoryEntity[] voteCategories)
         {
             entity.ImportId = data.CommentId;
@@ -350,7 +354,7 @@ namespace LeagueDataImporter
                 vote.VoteCategory = voteCategories
                     .SingleOrDefault(x => x.ImportId == voteData.VoteCategoryId);
                 vote.MemberAtFault = members
-                    .SingleOrDefault(x => x.ImportId == voteData.MemberAtFaultId);
+                    .SingleOrDefault(x => x.Member.ImportId == voteData.MemberAtFaultId).Member;
                 vote.Description = voteData.Description;
             }
             entity.AuthorName = data.AuthorName ?? data.CreatedByUserName;
@@ -488,7 +492,7 @@ namespace LeagueDataImporter
         }
 
         private async Task<ScoredEventResultEntity> MapSessionResultToEventResultEntity(ScoredResultDataDTO data, ScoredEventResultEntity entity, 
-            MemberEntity[] members, TeamEntity[] teams)
+            LeagueMemberEntity[] members, TeamEntity[] teams)
         {
             entity.ImportId = data.ScoringId;
             entity.Name = data.ScoringName;
@@ -530,7 +534,7 @@ namespace LeagueDataImporter
         }
 
         private async Task<ScoredResultRowEntity> MapScoredTeamResultRowDataToEntity(ScoredTeamResultRowDataDTO data, ScoredResultRowEntity entity,
-            MemberEntity[] members, TeamEntity[] teams)
+            LeagueMemberEntity[] members, TeamEntity[] teams)
         {
             entity.ImportId = data.ScoredResultRowId;
             entity.FastestLapTime = data.FastestLapTime.Ticks;
@@ -563,7 +567,7 @@ namespace LeagueDataImporter
         }
 
         private async Task<StandingEntity> MapStandingDataToEntity(StandingsDataDTO data, StandingEntity entity, 
-            MemberEntity[] members, TeamEntity[] teams)
+            LeagueMemberEntity[] members, TeamEntity[] teams)
         {
             entity.Name = data.Name;
             entity.IsTeamStanding = data is TeamStandingsDataDTO;
@@ -589,7 +593,7 @@ namespace LeagueDataImporter
         }
 
         private static StandingRowEntity MapStandingRowDataToEntity(StandingsRowDataDTO data, StandingRowEntity entity,
-            MemberEntity[] members, TeamEntity[] teams, IEnumerable<ScoredResultRowEntity> resultRows)
+            LeagueMemberEntity[] members, TeamEntity[] teams, IEnumerable<ScoredResultRowEntity> resultRows)
         {
             entity.CarClass = data.CarClass;
             entity.ClassId = data.ClassId;
@@ -603,7 +607,7 @@ namespace LeagueDataImporter
             entity.LastPosition = data.LastPosition;
             entity.LeadLaps = data.LeadLaps;
             entity.LeadLapsChange = data.LeadLapsChange;
-            entity.Member = members.FirstOrDefault(x => x.ImportId == data.MemberId);
+            entity.Member = members.FirstOrDefault(x => x.Member.ImportId == data.MemberId).Member;
             entity.PenaltyPoints = data.PenaltyPoints;
             entity.PenaltyPointsChange = data.PenaltyPointsChange;
             entity.PolePositions = data.PolePositions;
@@ -629,8 +633,8 @@ namespace LeagueDataImporter
             return entity;
         }
 
-        private static ScoredResultRowEntity MapScoredResultRowDataToEntity(ScoredResultRowDataDTO data, ScoredResultRowEntity entity,
-            MemberEntity[] members, TeamEntity[] teams)
+        private ScoredResultRowEntity MapScoredResultRowDataToEntity(ScoredResultRowDataDTO data, ScoredResultRowEntity entity,
+            LeagueMemberEntity[] members, TeamEntity[] teams)
         {
             entity.ImportId = data.ScoredResultRowId;
             entity.AvgLapTime = data.AvgLapTime.Ticks;
@@ -653,7 +657,7 @@ namespace LeagueDataImporter
             entity.Incidents = data.Incidents;
             entity.Interval = data.Interval.Ticks;
             entity.LeadLaps = data.LeadLaps;
-            entity.Member = members.Single(x => x.ImportId == data.MemberId);
+            entity.Member = members.Single(x => x.Member.ImportId == data.MemberId).Member;
             entity.NewCpi = data.NewCpi;
             entity.NewIRating = data.NewIRating;
             entity.NewLicenseLevel = data.NewLicenseLevel;
