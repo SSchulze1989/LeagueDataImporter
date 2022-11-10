@@ -185,7 +185,7 @@ namespace LeagueDataImporter
             foreach(var memberData in membersData)
             {
                 MemberEntity member = await dbContext.Members
-                    .FirstOrDefaultAsync(x => x.ImportId == memberData.MemberId);
+                    .FirstOrDefaultAsync(x => x.IRacingId == memberData.IRacingId);
                 if (member == null)
                 {
                     member = new();

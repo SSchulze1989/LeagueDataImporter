@@ -3,8 +3,6 @@ using Microsoft.Extensions.Configuration;
 using iRLeagueDatabase.DataTransfer;
 using LeagueDataImporter;
 
-Console.WriteLine("Hello, World!");
-
 var builder = new ConfigurationBuilder()
     .AddUserSecrets<Program>();
 var configuration = builder.Build();
@@ -12,6 +10,9 @@ var configuration = builder.Build();
 var username = configuration["Username"];
 var password = configuration["Password"];
 var leagueName = args.Length == 0 ? string.Empty : args[0];
+
+Console.WriteLine($"--- Importing data for league \"{leagueName}\" ---");
+
 var connectionString = configuration.GetConnectionString("ModelDb");
 var exporter = new DataExporter(leagueName, username, password);
 // check if league exists
@@ -144,5 +145,5 @@ foreach (var seasonData in importSeasons)
     }
 }
 
-Console.WriteLine("Finished");
+Console.WriteLine("--- Data import Finished ---");
 return 0;
