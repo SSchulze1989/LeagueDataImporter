@@ -61,11 +61,12 @@ namespace LeagueDataImporter
             foreach (var voteCategoryData in voteCategoriesData)
             {
                 VoteCategoryEntity voteCategory = await dbContext.VoteCategories
+                    .Where(x => x.LeagueId == League.Id)
                     .FirstOrDefaultAsync(x => x.ImportId == voteCategoryData.CatId);
                 if (voteCategory == null)
                 {
                     voteCategory = new();
-                    dbContext.VoteCategories.Add(voteCategory);
+                    League.VoteCategories.Add(voteCategory);
                 }
                 voteCategory = MapVoteCategoryDataToEntity(voteCategoryData, voteCategory);
                 voteCategories.Add(voteCategory);
@@ -305,6 +306,7 @@ namespace LeagueDataImporter
             foreach(var voteData in data.AcceptedReviewVotes)
             {
                 AcceptedReviewVoteEntity vote = entity.AcceptedReviewVotes
+                    .Where(x => x.LeagueId == entity.LeagueId)
                     .SingleOrDefault(x => x.ImportId == voteData.ReviewVoteId);
                 if (vote == null)
                 {
@@ -315,7 +317,7 @@ namespace LeagueDataImporter
                 vote.VoteCategory = voteCategories
                     .SingleOrDefault(x => x.ImportId == voteData.VoteCategoryId);
                 vote.MemberAtFault = members
-                    .SingleOrDefault(x => x.Member.ImportId == voteData.MemberAtFaultId).Member;
+                    .SingleOrDefault(x => x.Member.ImportId == voteData.MemberAtFaultId)?.Member;
                 vote.Description = voteData.Description;
             }
             if (data.Comments != null)
@@ -344,6 +346,7 @@ namespace LeagueDataImporter
             foreach(var voteData in data.CommentReviewVotes)
             {
                 ReviewCommentVoteEntity vote = entity.ReviewCommentVotes
+                    .Where(x => x.LeagueId == entity.LeagueId)
                     .SingleOrDefault(x => x.ImportId == voteData.ReviewVoteId);
                 if (vote == null)
                 {
@@ -354,7 +357,7 @@ namespace LeagueDataImporter
                 vote.VoteCategory = voteCategories
                     .SingleOrDefault(x => x.ImportId == voteData.VoteCategoryId);
                 vote.MemberAtFault = members
-                    .SingleOrDefault(x => x.Member.ImportId == voteData.MemberAtFaultId).Member;
+                    .SingleOrDefault(x => x.Member.ImportId == voteData.MemberAtFaultId)?.Member;
                 vote.Description = voteData.Description;
             }
             entity.AuthorName = data.AuthorName ?? data.CreatedByUserName;
@@ -537,8 +540,8 @@ namespace LeagueDataImporter
             LeagueMemberEntity[] members, TeamEntity[] teams)
         {
             entity.ImportId = data.ScoredResultRowId;
-            entity.FastestLapTime = data.FastestLapTime.Ticks;
-            entity.AvgLapTime = data.AvgLapTime.Ticks;
+            entity.FastestLapTime = data.FastestLapTime;
+            entity.AvgLapTime = data.AvgLapTime;
             entity.BonusPoints = data.BonusPoints;
             entity.CarClass = data.CarClass;
             entity.ClassId = data.ClassId;
@@ -637,7 +640,7 @@ namespace LeagueDataImporter
             LeagueMemberEntity[] members, TeamEntity[] teams)
         {
             entity.ImportId = data.ScoredResultRowId;
-            entity.AvgLapTime = data.AvgLapTime.Ticks;
+            entity.AvgLapTime = data.AvgLapTime;
             entity.BonusPoints = data.BonusPoints;
             entity.Car = data.Car;
             entity.CarClass = data.CarClass;
@@ -649,13 +652,13 @@ namespace LeagueDataImporter
             entity.CompletedLaps = data.CompletedLaps;
             entity.CompletedPct = data.CompletedPct;
             entity.Division = data.Division;
-            entity.FastestLapTime = data.FastestLapTime.Ticks;
+            entity.FastestLapTime = data.FastestLapTime;
             entity.FastLapNr = data.FastLapNr;
             entity.FinalPosition = data.FinalPosition;
             entity.FinalPositionChange = data.FinalPositionChange;
             entity.FinishPosition = data.FinishPosition;
             entity.Incidents = data.Incidents;
-            entity.Interval = data.Interval.Ticks;
+            entity.Interval = data.Interval;
             entity.LeadLaps = data.LeadLaps;
             entity.Member = members.Single(x => x.Member.ImportId == data.MemberId).Member;
             entity.NewCpi = data.NewCpi;
@@ -668,7 +671,7 @@ namespace LeagueDataImporter
             entity.OldSafetyRating = data.OldSafetyRating;
             entity.PenaltyPoints = data.PenaltyPoints;
             entity.PositionChange = data.PositionChange;
-            entity.QualifyingTime = data.QualifyingTime.Ticks;
+            entity.QualifyingTime = data.QualifyingTime;
             entity.RacePoints = data.RacePoints;
             entity.SeasonStartIRating = data.SeasonStartIRating;
             entity.SimSessionType = (int)data.SimSessionType;
