@@ -61,11 +61,12 @@ namespace LeagueDataImporter
             foreach (var voteCategoryData in voteCategoriesData)
             {
                 VoteCategoryEntity voteCategory = await dbContext.VoteCategories
+                    .Where(x => x.LeagueId == League.Id)
                     .FirstOrDefaultAsync(x => x.ImportId == voteCategoryData.CatId);
                 if (voteCategory == null)
                 {
                     voteCategory = new();
-                    dbContext.VoteCategories.Add(voteCategory);
+                    League.VoteCategories.Add(voteCategory);
                 }
                 voteCategory = MapVoteCategoryDataToEntity(voteCategoryData, voteCategory);
                 voteCategories.Add(voteCategory);
@@ -79,6 +80,7 @@ namespace LeagueDataImporter
             // check if season with this name exists:
             SeasonEntity season = await dbContext.Seasons
                 .Include(x => x.Schedules)
+                .Where(x => x.LeagueId == LeagueId)
                 .FirstOrDefaultAsync(x => x.ImportId == seasonData.SeasonId);
             if (season == null)
             {
@@ -95,6 +97,7 @@ namespace LeagueDataImporter
             ScheduleEntity schedule = await dbContext.Schedules
                 .Include(x => x.Events)
                     .ThenInclude(x => x.Sessions)
+                .Where(x => x.LeagueId == LeagueId)
                 .Where(x => x.SeasonId == season.SeasonId)
                 .FirstOrDefaultAsync(x => x.ImportId == scheduleData.ScheduleId);
             if (schedule == null)
@@ -122,7 +125,7 @@ namespace LeagueDataImporter
             return schedule;
         }
 
-        public async Task ImportEventResults(EventEntity @event, SessionResultsDTO sessionResults, MemberEntity[] members, TeamEntity[] teams)
+        public async Task ImportEventResults(EventEntity @event, SessionResultsDTO sessionResults, LeagueMemberEntity[] members, TeamEntity[] teams)
         {
             foreach(var resultsData in sessionResults.ScoredResults)
             {
@@ -130,6 +133,7 @@ namespace LeagueDataImporter
                     .Include(x => x.ScoredSessionResults)
                         .ThenInclude(x => x.ScoredResultRows)
                             .ThenInclude(x => x.TeamResultRows)
+                    .Where(x => x.LeagueId == LeagueId)
                     .Where(x => x.EventId == @event.EventId)
                     .FirstOrDefaultAsync(x => x.ImportId == resultsData.ScoringId);
                 if (eventResult == null)
@@ -143,7 +147,7 @@ namespace LeagueDataImporter
         }
 
         public async Task ImportEventReviews(EventEntity @event, IncidentReviewDataDTO[] reviewsData, 
-            MemberEntity[] members, 
+            LeagueMemberEntity[] members, 
             VoteCategoryEntity[] voteCategories)
         {
             // load event reviews and sessions
@@ -155,6 +159,7 @@ namespace LeagueDataImporter
                 .Include(x => x.Comments)
                     .ThenInclude(x => x.ReviewCommentVotes)
                         .ThenInclude(x => x.VoteCategory)
+                .Where(x => x.LeagueId == LeagueId)
                 .Where(x => x.Session.EventId == @event.EventId)
                 .LoadAsync();
             dbContext.ChangeTracker.DetectChanges();
@@ -163,6 +168,7 @@ namespace LeagueDataImporter
             foreach (var reviewData in reviewsData)
             {
                 IncidentReviewEntity review = await dbContext.IncidentReviews
+                    .Where(x => x.LeagueId == LeagueId)
                     .SingleOrDefaultAsync(x => x.ImportId == reviewData.ReviewId);
                 if (review == null)
                 {
@@ -174,13 +180,18 @@ namespace LeagueDataImporter
             await dbContext.SaveChangesAsync();
         }
 
-        public async Task<MemberEntity[]> ImportMembers(LeagueMemberDataDTO[] membersData)
+        public async Task<LeagueMemberEntity[]> ImportMembers(LeagueMemberDataDTO[] membersData)
         {
             var members = new List<MemberEntity>();
             foreach(var memberData in membersData)
             {
+                if (string.IsNullOrEmpty(memberData.IRacingId))
+                {
+                    continue;
+                }
+
                 MemberEntity member = await dbContext.Members
-                    .FirstOrDefaultAsync(x => x.ImportId == memberData.MemberId);
+                    .FirstOrDefaultAsync(x => x.IRacingId == memberData.IRacingId);
                 if (member == null)
                 {
                     member = new();
@@ -190,9 +201,12 @@ namespace LeagueDataImporter
                 members.Add(member);
             }
             await dbContext.SaveChangesAsync();
+            var leagueMembers = new List<LeagueMemberEntity>();
             foreach(var member in members)
             {
                 var leagueMember = await dbContext.LeagueMembers
+                    .Include(x => x.Member)
+                    .Where(x => x.LeagueId == LeagueId)
                     .FirstOrDefaultAsync(x => x.MemberId == member.Id);
                 if (leagueMember == null)
                 {
@@ -202,9 +216,10 @@ namespace LeagueDataImporter
                     };
                     League.LeagueMembers.Add(leagueMember);
                 }
+                leagueMembers.Add(leagueMember);
             }
             await dbContext.SaveChangesAsync();
-            return members.ToArray();
+            return leagueMembers.ToArray();
         }
 
         public async Task<TeamEntity[]> ImportTeams(TeamDataDTO[] teamsData, LeagueMemberDataDTO[] membersData)
@@ -213,6 +228,7 @@ namespace LeagueDataImporter
             foreach (var teamData in teamsData)
             {
                 TeamEntity team = await dbContext.Teams
+                    .Where(x => x.LeagueId == LeagueId)
                     .FirstOrDefaultAsync(x => x.ImportId == teamData.TeamId);
                 if (team == null)
                 {
@@ -226,6 +242,7 @@ namespace LeagueDataImporter
                     .Where(x => teamData.MemberIds
                         .ToList()
                         .Contains(x.Member.ImportId.GetValueOrDefault()))
+                    .Where(x => x.LeagueId == LeagueId)
                     .ToListAsync();
                 team.Members = teamLeagueMembers;
                 teams.Add(team);
@@ -248,14 +265,16 @@ namespace LeagueDataImporter
             await dbContext.SaveChangesAsync();
         }
 
-        public async Task ImportStandings(StandingsDataDTO[] standings, SeasonEntity season, MemberEntity[] members, TeamEntity[] teams)
+        public async Task ImportStandings(StandingsDataDTO[] standings, SeasonEntity season, EventEntity @event, LeagueMemberEntity[] members, TeamEntity[] teams)
         {
             foreach (var standing in standings)
             {
                 var standingEntity = await dbContext.Standings
                     .Include(x => x.StandingRows)
                         .ThenInclude(x => x.ResultRows)
+                    .Where(x => x.LeagueId == LeagueId)
                     .Where(x => x.SeasonId == season.SeasonId)
+                    .Where(x => x.EventId == @event.EventId)
                     .Where(x => x.Name == standing.Name)
                     .FirstOrDefaultAsync();
                 if (standingEntity == null)
@@ -263,6 +282,7 @@ namespace LeagueDataImporter
                     standingEntity = new()
                     {
                         Season = season,
+                        Event = @event,
                     };
                     dbContext.Standings.Add(standingEntity);
                 }
@@ -272,7 +292,7 @@ namespace LeagueDataImporter
         }
 
         private static IncidentReviewEntity MapReviewDataToEntity(IncidentReviewDataDTO data, IncidentReviewEntity entity,
-            MemberEntity[] members,
+            LeagueMemberEntity[] members,
             VoteCategoryEntity[] voteCategories)
         {
             entity.ImportId = data.ReviewId;
@@ -284,12 +304,14 @@ namespace LeagueDataImporter
             entity.InvolvedMembers = members
                 .Where(x => data.InvolvedMemberIds
                     .ToList()
-                    .Contains(x.ImportId.GetValueOrDefault()))
+                    .Contains(x.Member.ImportId.GetValueOrDefault()))
+                    .Select(x => x.Member)
                 .ToList();
             if (data.AcceptedReviewVotes != null)
             foreach(var voteData in data.AcceptedReviewVotes)
             {
                 AcceptedReviewVoteEntity vote = entity.AcceptedReviewVotes
+                    .Where(x => x.LeagueId == entity.LeagueId)
                     .SingleOrDefault(x => x.ImportId == voteData.ReviewVoteId);
                 if (vote == null)
                 {
@@ -300,13 +322,14 @@ namespace LeagueDataImporter
                 vote.VoteCategory = voteCategories
                     .SingleOrDefault(x => x.ImportId == voteData.VoteCategoryId);
                 vote.MemberAtFault = members
-                    .SingleOrDefault(x => x.ImportId == voteData.MemberAtFaultId);
+                    .SingleOrDefault(x => x.Member.ImportId == voteData.MemberAtFaultId)?.Member;
                 vote.Description = voteData.Description;
             }
             if (data.Comments != null)
             foreach(var commentData in data.Comments)
             {
                 ReviewCommentEntity comment = entity.Comments
+                    .Where(x => x.LeagueId == entity.LeagueId)
                     .SingleOrDefault(x => x.ImportId == commentData.CommentId);
                 if (comment == null)
                 {
@@ -320,7 +343,7 @@ namespace LeagueDataImporter
         }
 
         private static ReviewCommentEntity MapCommentDataToEntity(ReviewCommentDataDTO data, ReviewCommentEntity entity,
-            MemberEntity[] members,
+            LeagueMemberEntity[] members,
             VoteCategoryEntity[] voteCategories)
         {
             entity.ImportId = data.CommentId;
@@ -328,6 +351,7 @@ namespace LeagueDataImporter
             foreach(var voteData in data.CommentReviewVotes)
             {
                 ReviewCommentVoteEntity vote = entity.ReviewCommentVotes
+                    .Where(x => x.LeagueId == entity.LeagueId)
                     .SingleOrDefault(x => x.ImportId == voteData.ReviewVoteId);
                 if (vote == null)
                 {
@@ -338,7 +362,7 @@ namespace LeagueDataImporter
                 vote.VoteCategory = voteCategories
                     .SingleOrDefault(x => x.ImportId == voteData.VoteCategoryId);
                 vote.MemberAtFault = members
-                    .SingleOrDefault(x => x.ImportId == voteData.MemberAtFaultId);
+                    .SingleOrDefault(x => x.Member.ImportId == voteData.MemberAtFaultId)?.Member;
                 vote.Description = voteData.Description;
             }
             entity.AuthorName = data.AuthorName ?? data.CreatedByUserName;
@@ -476,7 +500,7 @@ namespace LeagueDataImporter
         }
 
         private async Task<ScoredEventResultEntity> MapSessionResultToEventResultEntity(ScoredResultDataDTO data, ScoredEventResultEntity entity, 
-            MemberEntity[] members, TeamEntity[] teams)
+            LeagueMemberEntity[] members, TeamEntity[] teams)
         {
             entity.ImportId = data.ScoringId;
             entity.Name = data.ScoringName;
@@ -518,11 +542,11 @@ namespace LeagueDataImporter
         }
 
         private async Task<ScoredResultRowEntity> MapScoredTeamResultRowDataToEntity(ScoredTeamResultRowDataDTO data, ScoredResultRowEntity entity,
-            MemberEntity[] members, TeamEntity[] teams)
+            LeagueMemberEntity[] members, TeamEntity[] teams)
         {
             entity.ImportId = data.ScoredResultRowId;
-            entity.FastestLapTime = data.FastestLapTime.Ticks;
-            entity.AvgLapTime = data.AvgLapTime.Ticks;
+            entity.FastestLapTime = data.FastestLapTime;
+            entity.AvgLapTime = data.AvgLapTime;
             entity.BonusPoints = data.BonusPoints;
             entity.CarClass = data.CarClass;
             entity.ClassId = data.ClassId;
@@ -537,6 +561,7 @@ namespace LeagueDataImporter
             foreach(var rowData in data.ScoredResultRows)
             {
                 ScoredResultRowEntity rowEntity = await dbContext.ScoredResultRows
+                    .Where(x => x.LeagueId == LeagueId)
                     .SingleOrDefaultAsync(x => x.ImportId == rowData.ScoredResultRowId);
                 if (rowEntity == null)
                 {
@@ -550,12 +575,10 @@ namespace LeagueDataImporter
         }
 
         private async Task<StandingEntity> MapStandingDataToEntity(StandingsDataDTO data, StandingEntity entity, 
-            MemberEntity[] members, TeamEntity[] teams)
+            LeagueMemberEntity[] members, TeamEntity[] teams)
         {
             entity.Name = data.Name;
             entity.IsTeamStanding = data is TeamStandingsDataDTO;
-            entity.Event = await dbContext.Events
-                .FirstOrDefaultAsync(x => x.ImportId == data.SessionId);
             foreach((var rowData, var index) in data.StandingsRows.Select((x, i) => (x, i)))
             {
                 var rowEntity = entity.StandingRows
@@ -565,13 +588,20 @@ namespace LeagueDataImporter
                     rowEntity = new();
                     entity.StandingRows.Add(rowEntity);
                 }
-                rowEntity = await MapStandingRowDataToEntity(rowData, rowEntity, members, teams);
+                var resultRowIds = data.StandingsRows
+                    .SelectMany(x => x.DriverResults)
+                    .Select(x => x.ScoredResultRowId);
+                var resultRows = await dbContext.ScoredResultRows
+                    .Where(x => x.LeagueId == LeagueId)
+                    .Where(x => resultRowIds.Contains(x.ImportId))
+                    .ToListAsync();
+                rowEntity = MapStandingRowDataToEntity(rowData, rowEntity, members, teams, resultRows);
             }
             return entity;
         }
 
-        private async Task<StandingRowEntity> MapStandingRowDataToEntity(StandingsRowDataDTO data, StandingRowEntity entity,
-            MemberEntity[] members, TeamEntity[] teams)
+        private static StandingRowEntity MapStandingRowDataToEntity(StandingsRowDataDTO data, StandingRowEntity entity,
+            LeagueMemberEntity[] members, TeamEntity[] teams, IEnumerable<ScoredResultRowEntity> resultRows)
         {
             entity.CarClass = data.CarClass;
             entity.ClassId = data.ClassId;
@@ -585,7 +615,7 @@ namespace LeagueDataImporter
             entity.LastPosition = data.LastPosition;
             entity.LeadLaps = data.LeadLaps;
             entity.LeadLapsChange = data.LeadLapsChange;
-            entity.Member = members.FirstOrDefault(x => x.ImportId == data.MemberId);
+            entity.Member = members.FirstOrDefault(x => x.Member.ImportId == data.MemberId).Member;
             entity.PenaltyPoints = data.PenaltyPoints;
             entity.PenaltyPointsChange = data.PenaltyPointsChange;
             entity.PolePositions = data.PolePositions;
@@ -605,17 +635,17 @@ namespace LeagueDataImporter
             entity.Wins = data.Wins;
             entity.WinsChange = data.WinsChange;
             var resultRowIds = data.DriverResults.Select(x => x.ScoredResultRowId);
-            entity.ResultRows = await dbContext.ScoredResultRows
+            entity.ResultRows = resultRows
                 .Where(x => resultRowIds.Contains(x.ImportId))
-                .ToListAsync();
+                .ToList();
             return entity;
         }
 
-        private static ScoredResultRowEntity MapScoredResultRowDataToEntity(ScoredResultRowDataDTO data, ScoredResultRowEntity entity,
-            MemberEntity[] members, TeamEntity[] teams)
+        private ScoredResultRowEntity MapScoredResultRowDataToEntity(ScoredResultRowDataDTO data, ScoredResultRowEntity entity,
+            LeagueMemberEntity[] members, TeamEntity[] teams)
         {
             entity.ImportId = data.ScoredResultRowId;
-            entity.AvgLapTime = data.AvgLapTime.Ticks;
+            entity.AvgLapTime = data.AvgLapTime;
             entity.BonusPoints = data.BonusPoints;
             entity.Car = data.Car;
             entity.CarClass = data.CarClass;
@@ -627,15 +657,15 @@ namespace LeagueDataImporter
             entity.CompletedLaps = data.CompletedLaps;
             entity.CompletedPct = data.CompletedPct;
             entity.Division = data.Division;
-            entity.FastestLapTime = data.FastestLapTime.Ticks;
+            entity.FastestLapTime = data.FastestLapTime;
             entity.FastLapNr = data.FastLapNr;
             entity.FinalPosition = data.FinalPosition;
             entity.FinalPositionChange = data.FinalPositionChange;
             entity.FinishPosition = data.FinishPosition;
             entity.Incidents = data.Incidents;
-            entity.Interval = data.Interval.Ticks;
+            entity.Interval = data.Interval;
             entity.LeadLaps = data.LeadLaps;
-            entity.Member = members.Single(x => x.ImportId == data.MemberId);
+            entity.Member = members.Single(x => x.Member.ImportId == data.MemberId).Member;
             entity.NewCpi = data.NewCpi;
             entity.NewIRating = data.NewIRating;
             entity.NewLicenseLevel = data.NewLicenseLevel;
@@ -646,7 +676,7 @@ namespace LeagueDataImporter
             entity.OldSafetyRating = data.OldSafetyRating;
             entity.PenaltyPoints = data.PenaltyPoints;
             entity.PositionChange = data.PositionChange;
-            entity.QualifyingTime = data.QualifyingTime.Ticks;
+            entity.QualifyingTime = data.QualifyingTime;
             entity.RacePoints = data.RacePoints;
             entity.SeasonStartIRating = data.SeasonStartIRating;
             entity.SimSessionType = (int)data.SimSessionType;

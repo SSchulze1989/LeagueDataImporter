@@ -26,6 +26,14 @@ public class DataExporter
         client.DefaultRequestHeaders.Add(HttpRequestHeader.Accept.ToString(), "application/xml");
     }
 
+    public async Task<IEnumerable<string>> GetLeagueNames()
+    {
+        var requestUrl = "CheckLeague";
+        var result = await client.GetAsync(requestUrl);
+        var content = await result.Content.ReadAsAsync<string[]>();
+        return content;
+    }
+
     public async Task<SeasonDataDTO[]> GetSeasons()
     {
         return await GetAsync<SeasonDataDTO>(Array.Empty<long>());
@@ -78,6 +86,19 @@ public class DataExporter
         sb.Append("Standings");
         sb.Append($"?leagueName={leagueName}");
         sb.Append($"&seasonId={season.SeasonId}");
+        var requestUrl = sb.ToString();
+        var result = await client.GetAsync(requestUrl);
+        var content = await result.Content.ReadAsAsync<SeasonStandingsDTO>();
+        return content.Standings;
+    }
+
+    public async Task<StandingsDataDTO[]> GetStandingsFromSession(SeasonDataDTO season, SessionDataDTO session)
+    {
+        var sb = new StringBuilder();
+        sb.Append("Standings");
+        sb.Append($"?leagueName={leagueName}");
+        sb.Append($"&seasonId={season.SeasonId}");
+        sb.Append($"&sessionId={session.SessionId}");
         var requestUrl = sb.ToString();
         var result = await client.GetAsync(requestUrl);
         var content = await result.Content.ReadAsAsync<SeasonStandingsDTO>();
