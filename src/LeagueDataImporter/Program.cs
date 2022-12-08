@@ -9,7 +9,7 @@ var configuration = builder.Build();
 
 var username = configuration["Username"];
 var password = configuration["Password"];
-var leagueName = args.Length == 0 ? "DAC-F4-Cup" : args[0];
+var leagueName = args.Length == 0 ? "SkippyCup" : args[0];
 
 Console.WriteLine($"--- Importing data for league \"{leagueName}\" ---");
 

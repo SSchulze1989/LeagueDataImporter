@@ -185,6 +185,11 @@ namespace LeagueDataImporter
             var members = new List<MemberEntity>();
             foreach(var memberData in membersData)
             {
+                if (string.IsNullOrEmpty(memberData.IRacingId))
+                {
+                    continue;
+                }
+
                 MemberEntity member = await dbContext.Members
                     .FirstOrDefaultAsync(x => x.IRacingId == memberData.IRacingId);
                 if (member == null)
