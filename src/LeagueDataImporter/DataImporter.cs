@@ -634,11 +634,28 @@ namespace LeagueDataImporter
             entity.TotalPointsChange = data.TotalPointsChange;
             entity.Wins = data.Wins;
             entity.WinsChange = data.WinsChange;
-            var resultRowIds = data.DriverResults.Select(x => x.ScoredResultRowId);
-            entity.ResultRows = resultRows
-                .Where(x => resultRowIds.Contains(x.ImportId))
-                .ToList();
+            entity.ResultRows = MapStandingResultRowsList(data.DriverResults, entity.ResultRows, resultRows);
             return entity;
+        }
+
+        private static ICollection<StandingRows_ScoredResultRows> MapStandingResultRowsList(ScoredResultRowDataDTO[] standingResultRowData,
+            ICollection<StandingRows_ScoredResultRows> standingResultRows, IEnumerable<ScoredResultRowEntity> resultRows)
+        {
+            foreach(var rowData in standingResultRowData)
+            {
+                var resultRow = standingResultRows.FirstOrDefault(x => x.ScoredResultRow.ImportId == rowData.ScoredResultRowId);
+                if (resultRow is null)
+                {
+                    var scoredResultRow = resultRows.First(x => x.ImportId == rowData.ScoredResultRowId);
+                    resultRow = new()
+                    {
+                        ScoredResultRow = scoredResultRow,
+                    };
+                    standingResultRows.Add(resultRow);
+                }
+                resultRow.IsScored = rowData.IsDroppedResult == false;
+            }
+            return standingResultRows;
         }
 
         private ScoredResultRowEntity MapScoredResultRowDataToEntity(ScoredResultRowDataDTO data, ScoredResultRowEntity entity,
