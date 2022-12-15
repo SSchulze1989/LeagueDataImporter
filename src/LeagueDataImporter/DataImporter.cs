@@ -366,6 +366,7 @@ namespace LeagueDataImporter
                 vote.Description = voteData.Description;
             }
             entity.AuthorName = data.AuthorName ?? data.CreatedByUserName;
+            entity.AuthorUserId = data.AuthorUserId ?? data.CreatedByUserId;
             entity.Date = data.Date;
             return entity;
         }
