@@ -10,6 +10,16 @@ var configuration = builder.Build();
 var username = configuration["Username"];
 var password = configuration["Password"];
 var leagueName = args.Length == 0 ? "SkippyCup" : args[0];
+Options options;
+try
+{
+    options = ParseArgs(args);
+}
+catch (ArgumentException ex)
+{
+    Console.WriteLine(ex.Message);
+    return -1;
+}
 
 Console.WriteLine($"--- Importing data for league \"{leagueName}\" ---");
 
@@ -59,7 +69,13 @@ var voteCategories = await importer.ImportVoteCategories(voteCategoriesData);
 Console.Write("Done!\n");
 
 IEnumerable<SeasonDataDTO> importSeasons;
-if (args.Contains("--import-all"))
+
+if (options.SeasonIndex is not null)
+{
+    importSeasons = seasonsData.Skip(options.SeasonIndex.Value);
+}
+
+if (options.ImportAll)
 {
     importSeasons = seasonsData;
 }
@@ -85,7 +101,7 @@ foreach (var seasonData in importSeasons)
     var scheduleMap = season.Schedules.Zip(schedulesData).ToList();
     var eventMap = season.Schedules.SelectMany(x => x.Events).Zip(schedulesData.SelectMany(x => x.Sessions)).ToList();
 
-    if (args.Contains("--skip-results") == false)
+    if (options.ImportResults)
     {
         foreach ((var @event, var session) in eventMap)
         {
@@ -104,7 +120,7 @@ foreach (var seasonData in importSeasons)
             }
         }
     }
-    if (args.Contains("--skip-reviews") == false)
+    if (options.ImportReviews)
     {
         foreach ((var @event, var session) in eventMap)
         {
@@ -124,7 +140,7 @@ foreach (var seasonData in importSeasons)
         }
     }
 
-    if (args.Contains("--skip-standings") == false)
+    if (options.ImportStandings)
     {
         foreach((var @event, var session) in eventMap)
         {
@@ -147,3 +163,53 @@ foreach (var seasonData in importSeasons)
 
 Console.WriteLine("--- Data import Finished ---");
 return 0;
+
+Options ParseArgs(string[] args)
+{
+    int i = 1;
+    var opt = new Options();
+    while(i < args.Length)
+    {
+        switch(args[i])
+        {
+            case "--import-all-seasons":
+                opt.ImportAll = true;
+                break;
+            case "--import-results":
+                opt.ImportResults = true;
+                break;
+            case "--import-reviews":
+                opt.ImportReviews = true;
+                break;
+            case "--import-standings":
+                opt.ImportStandings = true;
+                break;
+            case "--season-index":
+                {
+                    var id = int.TryParse(args[++i], out int res) ? res : throw new ArgumentException("Argument \"--season-id\" must be followed by an integer");
+                    opt.SeasonIndex = id;
+                    break;
+                }
+            case "--skip-last":
+                {
+                    var skip = int.TryParse(args[++i], out int res) ? res : throw new ArgumentException("Argument \"--skip-last\" must be followed by an integer");
+                    opt.SkipLast = skip;
+                    break;
+                }
+            default:
+                throw new ArgumentException($"Unknown argument \"{args[i]}\"");
+        }
+        i++;
+    }
+    return opt;
+}
+
+class Options
+{
+    public int? SeasonIndex { get; set; }
+    public int SkipLast { get; set; }
+    public bool ImportAll { get; set; }
+    public bool ImportResults { get; set; }
+    public bool ImportReviews { get; set; }
+    public bool ImportStandings { get; set; }
+}
