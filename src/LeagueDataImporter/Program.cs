@@ -70,18 +70,16 @@ Console.Write("Done!\n");
 
 IEnumerable<SeasonDataDTO> importSeasons;
 
+importSeasons = seasonsData.SkipLast(options.SkipLast);
+
 if (options.SeasonIndex is not null)
 {
-    importSeasons = seasonsData.Skip(options.SeasonIndex.Value);
+    importSeasons = importSeasons.Skip(options.SeasonIndex.Value);
 }
 
-if (options.ImportAll)
+if (options.ImportAll == false)
 {
-    importSeasons = seasonsData;
-}
-else
-{
-    importSeasons = seasonsData.TakeLast(1);
+    importSeasons = importSeasons.TakeLast(1);
 }
 
 foreach (var seasonData in importSeasons)
